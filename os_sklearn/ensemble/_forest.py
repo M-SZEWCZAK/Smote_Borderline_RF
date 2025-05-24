@@ -3,7 +3,7 @@ from sklearn.utils._param_validation import StrOptions
 from sklearn.ensemble._forest import ForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.utils import resample
-from imblearn.over_sampling import SMOTE, BorderlineSMOTE, ADASYN
+from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE, ADASYN
 
 class OSRandomForestClassifier(ForestClassifier):
     """
@@ -356,7 +356,7 @@ class OSRandomForestClassifier(ForestClassifier):
         monotonic_cst=None,
     ):
         super().__init__(
-            estimator=OSDecisionTreeClassifier(oversampling_strategy=oversampling_strategy),
+            estimator=OSDecisionTreeClassifier(oversampling_strategy=oversampling_strategy, random_state=random_state),
             n_estimators=n_estimators,
             estimator_params=(
                 "criterion",
@@ -414,6 +414,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
+        # print(f"Oversampling strategy: {oversampling_strategy}")
         super().__init__(
             criterion=criterion,
             splitter=splitter,
@@ -433,15 +434,33 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
 
     def _fit(
         self,
-        x,
+        X,
         y,
         sample_weight=None,
         check_input=True,
         missing_values_in_feature_mask=None,
     ):
+        if self.oversampling_strategy == "random":
+            sampler = RandomOverSampler(random_state=self.random_state)
+        elif self.oversampling_strategy == "SMOTE":
+            sampler = SMOTE(random_state=self.random_state)
+            print(f"Using SMOTE with random_state={self.random_state} to generate synthetic samples.")
+        elif  self.oversampling_strategy == "BorderlineSMOTE":
+            sampler = BorderlineSMOTE(random_state=self.random_state)
+            print(f"Using BorderlineSMOTE with random_state={self.random_state} to generate synthetic samples.")
+        elif self.oversampling_strategy == "ADASYN":
+            sampler = ADASYN(random_state=self.random_state)
+        else:
+            raise ValueError(
+                f"Oversampling strategy {self.oversampling_strategy} is not supported."
+            )
+
+        X_resampled, y_resampled = sampler.fit_resample(X, y)
+        sample_weight = None
+
         return super()._fit(
-            x,
-            y,
+            X_resampled,
+            y_resampled,
             sample_weight=sample_weight,
             check_input=check_input,
             missing_values_in_feature_mask=missing_values_in_feature_mask,

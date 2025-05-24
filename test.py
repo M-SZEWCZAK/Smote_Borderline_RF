@@ -12,7 +12,7 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, stratify=y, test_size=0.3, random_state=42
 )
 
-rf = OSRandomForestClassifier(oversampling_strategy='SMOTE', random_state=42)
+rf = OSRandomForestClassifier(oversampling_strategy='BorderlineSMOTE')
 rf.fit(X_train, y_train)
 y_pred = rf.predict(X_test)
 
