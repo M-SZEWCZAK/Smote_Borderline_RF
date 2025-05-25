@@ -1,9 +1,16 @@
+import numpy as np
 from sklearn.utils._param_validation import StrOptions
 
 from sklearn.ensemble._forest import ForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.utils import resample
 from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE, ADASYN
+
+def _unwrap_data(X, y, sample_weight):
+    if sample_weight is None:
+        return X, y
+
+    return np.repeat(X, sample_weight.astype(int), axis=0), np.repeat(y, sample_weight.astype(int), axis=0)
 
 class OSRandomForestClassifier(ForestClassifier):
     """
@@ -444,10 +451,10 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
             sampler = RandomOverSampler(random_state=self.random_state)
         elif self.oversampling_strategy == "SMOTE":
             sampler = SMOTE(random_state=self.random_state)
-            print(f"Using SMOTE with random_state={self.random_state} to generate synthetic samples.")
+            # print(f"Using SMOTE with random_state={self.random_state} to generate synthetic samples.")
         elif  self.oversampling_strategy == "BorderlineSMOTE":
             sampler = BorderlineSMOTE(random_state=self.random_state)
-            print(f"Using BorderlineSMOTE with random_state={self.random_state} to generate synthetic samples.")
+            # print(f"Using BorderlineSMOTE with random_state={self.random_state} to generate synthetic samples.")
         elif self.oversampling_strategy == "ADASYN":
             sampler = ADASYN(random_state=self.random_state)
         else:
@@ -455,10 +462,18 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
                 f"Oversampling strategy {self.oversampling_strategy} is not supported."
             )
 
-        X_resampled, y_resampled = sampler.fit_resample(X, y)
+        X_drawn, y_drawn = _unwrap_data(X, y, sample_weight)
+        X_resampled, y_resampled = sampler.fit_resample(X_drawn, y_drawn)
+
+        # print(f"len X_drawn: {len(X_drawn)}")
+        # print(f"len X_resampled: {len(X_resampled)}")
+        # print(X_drawn[:6, 0])
+        # print(X_resampled[:6, 0])
+
         sample_weight = None
 
         return super()._fit(
+            # X, y,
             X_resampled,
             y_resampled,
             sample_weight=sample_weight,
