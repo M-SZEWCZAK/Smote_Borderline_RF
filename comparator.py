@@ -61,7 +61,9 @@ class Comparator:
         report_before = classification_report(y_test, y_pred_before, output_dict=True, zero_division=0)
         report_after = classification_report(y_test, y_pred_after, output_dict=True, zero_division=0)
 
+        print("OS before bagging")
         print(classification_report(y_test, y_pred_before))
+        print("OS after bagging")
         print(classification_report(y_test, y_pred_after))
 
         return report_before, report_after

@@ -464,13 +464,17 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
 
         X_drawn, y_drawn = _unwrap_data(X, y, sample_weight)
         X_resampled, y_resampled = sampler.fit_resample(X_drawn, y_drawn)
+        count_1 = sum(y_resampled == 1)
+        count_0 = sum(y_resampled == 0)
+        # print(f"Count of 1s: {count_1}, Count of 0s: {count_0}")
+
+        sample_weight = [1] * len(X_drawn) + [0.5] * (len(X_resampled) - len(X_drawn))
+        # sample_weight = None
 
         # print(f"len X_drawn: {len(X_drawn)}")
         # print(f"len X_resampled: {len(X_resampled)}")
         # print(X_drawn[:6, 0])
         # print(X_resampled[:6, 0])
-
-        sample_weight = None
 
         return super()._fit(
             # X, y,
