@@ -1,10 +1,13 @@
 import numpy as np
 from sklearn.utils._param_validation import StrOptions
-
+import matplotlib.pyplot as plt
 from sklearn.ensemble._forest import ForestClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.utils import resample
 from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE, ADASYN
+from sklearn.base import clone
+from sklearn.ensemble._base import _set_random_states
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 def _unwrap_data(X, y, sample_weight):
     if sample_weight is None:
@@ -13,318 +16,6 @@ def _unwrap_data(X, y, sample_weight):
     return np.repeat(X, sample_weight.astype(int), axis=0), np.repeat(y, sample_weight.astype(int), axis=0)
 
 class OSRandomForestClassifier(ForestClassifier):
-    """
-    A random forest classifier.
-
-    A random forest is a meta estimator that fits a number of decision tree
-    classifiers on various sub-samples of the dataset and uses averaging to
-    improve the predictive accuracy and control over-fitting.
-    Trees in the forest use the best split strategy, i.e. equivalent to passing
-    `splitter="best"` to the underlying :class:`~sklearn.tree.DecisionTreeClassifier`.
-    The sub-sample size is controlled with the `max_samples` parameter if
-    `bootstrap=True` (default), otherwise the whole dataset is used to build
-    each tree.
-
-    For a comparison between tree-based ensemble models see the example
-    :ref:`sphx_glr_auto_examples_ensemble_plot_forest_hist_grad_boosting_comparison.py`.
-
-    Read more in the :ref:`User Guide <forest>`.
-
-    Parameters
-    ----------
-    n_estimators : int, default=100
-        The number of trees in the forest.
-
-        .. versionchanged:: 0.22
-           The default value of ``n_estimators`` changed from 10 to 100
-           in 0.22.
-
-    criterion : {"gini", "entropy", "log_loss"}, default="gini"
-        The function to measure the quality of a split. Supported criteria are
-        "gini" for the Gini impurity and "log_loss" and "entropy" both for the
-        Shannon information gain, see :ref:`tree_mathematical_formulation`.
-        Note: This parameter is tree-specific.
-
-    max_depth : int, default=None
-        The maximum depth of the tree. If None, then nodes are expanded until
-        all leaves are pure or until all leaves contain less than
-        min_samples_split samples.
-
-    min_samples_split : int or float, default=2
-        The minimum number of samples required to split an internal node:
-
-        - If int, then consider `min_samples_split` as the minimum number.
-        - If float, then `min_samples_split` is a fraction and
-          `ceil(min_samples_split * n_samples)` are the minimum
-          number of samples for each split.
-
-        .. versionchanged:: 0.18
-           Added float values for fractions.
-
-    min_samples_leaf : int or float, default=1
-        The minimum number of samples required to be at a leaf node.
-        A split point at any depth will only be considered if it leaves at
-        least ``min_samples_leaf`` training samples in each of the left and
-        right branches.  This may have the effect of smoothing the model,
-        especially in regression.
-
-        - If int, then consider `min_samples_leaf` as the minimum number.
-        - If float, then `min_samples_leaf` is a fraction and
-          `ceil(min_samples_leaf * n_samples)` are the minimum
-          number of samples for each node.
-
-        .. versionchanged:: 0.18
-           Added float values for fractions.
-
-    min_weight_fraction_leaf : float, default=0.0
-        The minimum weighted fraction of the sum total of weights (of all
-        the input samples) required to be at a leaf node. Samples have
-        equal weight when sample_weight is not provided.
-
-    max_features : {"sqrt", "log2", None}, int or float, default="sqrt"
-        The number of features to consider when looking for the best split:
-
-        - If int, then consider `max_features` features at each split.
-        - If float, then `max_features` is a fraction and
-          `max(1, int(max_features * n_features_in_))` features are considered at each
-          split.
-        - If "sqrt", then `max_features=sqrt(n_features)`.
-        - If "log2", then `max_features=log2(n_features)`.
-        - If None, then `max_features=n_features`.
-
-        .. versionchanged:: 1.1
-            The default of `max_features` changed from `"auto"` to `"sqrt"`.
-
-        Note: the search for a split does not stop until at least one
-        valid partition of the node samples is found, even if it requires to
-        effectively inspect more than ``max_features`` features.
-
-    max_leaf_nodes : int, default=None
-        Grow trees with ``max_leaf_nodes`` in best-first fashion.
-        Best nodes are defined as relative reduction in impurity.
-        If None then unlimited number of leaf nodes.
-
-    min_impurity_decrease : float, default=0.0
-        A node will be split if this split induces a decrease of the impurity
-        greater than or equal to this value.
-
-        The weighted impurity decrease equation is the following::
-
-            N_t / N * (impurity - N_t_R / N_t * right_impurity
-                                - N_t_L / N_t * left_impurity)
-
-        where ``N`` is the total number of samples, ``N_t`` is the number of
-        samples at the current node, ``N_t_L`` is the number of samples in the
-        left child, and ``N_t_R`` is the number of samples in the right child.
-
-        ``N``, ``N_t``, ``N_t_R`` and ``N_t_L`` all refer to the weighted sum,
-        if ``sample_weight`` is passed.
-
-        .. versionadded:: 0.19
-
-    bootstrap : bool, default=True
-        Whether bootstrap samples are used when building trees. If False, the
-        whole dataset is used to build each tree.
-
-    oob_score : bool or callable, default=False
-        Whether to use out-of-bag samples to estimate the generalization score.
-        By default, :func:`~sklearn.metrics.accuracy_score` is used.
-        Provide a callable with signature `metric(y_true, y_pred)` to use a
-        custom metric. Only available if `bootstrap=True`.
-
-    n_jobs : int, default=None
-        The number of jobs to run in parallel. :meth:`fit`, :meth:`predict`,
-        :meth:`decision_path` and :meth:`apply` are all parallelized over the
-        trees. ``None`` means 1 unless in a :obj:`joblib.parallel_backend`
-        context. ``-1`` means using all processors. See :term:`Glossary
-        <n_jobs>` for more details.
-
-    random_state : int, RandomState instance or None, default=None
-        Controls both the randomness of the bootstrapping of the samples used
-        when building trees (if ``bootstrap=True``) and the sampling of the
-        features to consider when looking for the best split at each node
-        (if ``max_features < n_features``).
-        See :term:`Glossary <random_state>` for details.
-
-    verbose : int, default=0
-        Controls the verbosity when fitting and predicting.
-
-    warm_start : bool, default=False
-        When set to ``True``, reuse the solution of the previous call to fit
-        and add more estimators to the ensemble, otherwise, just fit a whole
-        new forest. See :term:`Glossary <warm_start>` and
-        :ref:`tree_ensemble_warm_start` for details.
-
-    class_weight : {"balanced", "balanced_subsample"}, dict or list of dicts, \
-            default=None
-        Weights associated with classes in the form ``{class_label: weight}``.
-        If not given, all classes are supposed to have weight one. For
-        multi-output problems, a list of dicts can be provided in the same
-        order as the columns of y.
-
-        Note that for multioutput (including multilabel) weights should be
-        defined for each class of every column in its own dict. For example,
-        for four-class multilabel classification weights should be
-        [{0: 1, 1: 1}, {0: 1, 1: 5}, {0: 1, 1: 1}, {0: 1, 1: 1}] instead of
-        [{1:1}, {2:5}, {3:1}, {4:1}].
-
-        The "balanced" mode uses the values of y to automatically adjust
-        weights inversely proportional to class frequencies in the input data
-        as ``n_samples / (n_classes * np.bincount(y))``
-
-        The "balanced_subsample" mode is the same as "balanced" except that
-        weights are computed based on the bootstrap sample for every tree
-        grown.
-
-        For multi-output, the weights of each column of y will be multiplied.
-
-        Note that these weights will be multiplied with sample_weight (passed
-        through the fit method) if sample_weight is specified.
-
-    ccp_alpha : non-negative float, default=0.0
-        Complexity parameter used for Minimal Cost-Complexity Pruning. The
-        subtree with the largest cost complexity that is smaller than
-        ``ccp_alpha`` will be chosen. By default, no pruning is performed. See
-        :ref:`minimal_cost_complexity_pruning` for details. See
-        :ref:`sphx_glr_auto_examples_tree_plot_cost_complexity_pruning.py`
-        for an example of such pruning.
-
-        .. versionadded:: 0.22
-
-    max_samples : int or float, default=None
-        If bootstrap is True, the number of samples to draw from X
-        to train each base estimator.
-
-        - If None (default), then draw `X.shape[0]` samples.
-        - If int, then draw `max_samples` samples.
-        - If float, then draw `max(round(n_samples * max_samples), 1)` samples. Thus,
-          `max_samples` should be in the interval `(0.0, 1.0]`.
-
-        .. versionadded:: 0.22
-
-    monotonic_cst : array-like of int of shape (n_features), default=None
-        Indicates the monotonicity constraint to enforce on each feature.
-          - 1: monotonic increase
-          - 0: no constraint
-          - -1: monotonic decrease
-
-        If monotonic_cst is None, no constraints are applied.
-
-        Monotonicity constraints are not supported for:
-          - multiclass classifications (i.e. when `n_classes > 2`),
-          - multioutput classifications (i.e. when `n_outputs_ > 1`),
-          - classifications trained on data with missing values.
-
-        The constraints hold over the probability of the positive class.
-
-        Read more in the :ref:`User Guide <monotonic_cst_gbdt>`.
-
-        .. versionadded:: 1.4
-
-    Attributes
-    ----------
-    estimator_ : :class:`~sklearn.tree.DecisionTreeClassifier`
-        The child estimator template used to create the collection of fitted
-        sub-estimators.
-
-        .. versionadded:: 1.2
-           `base_estimator_` was renamed to `estimator_`.
-
-    estimators_ : list of DecisionTreeClassifier
-        The collection of fitted sub-estimators.
-
-    classes_ : ndarray of shape (n_classes,) or a list of such arrays
-        The classes labels (single output problem), or a list of arrays of
-        class labels (multi-output problem).
-
-    n_classes_ : int or list
-        The number of classes (single output problem), or a list containing the
-        number of classes for each output (multi-output problem).
-
-    n_features_in_ : int
-        Number of features seen during :term:`fit`.
-
-        .. versionadded:: 0.24
-
-    feature_names_in_ : ndarray of shape (`n_features_in_`,)
-        Names of features seen during :term:`fit`. Defined only when `X`
-        has feature names that are all strings.
-
-        .. versionadded:: 1.0
-
-    n_outputs_ : int
-        The number of outputs when ``fit`` is performed.
-
-    feature_importances_ : ndarray of shape (n_features,)
-        The impurity-based feature importances.
-        The higher, the more important the feature.
-        The importance of a feature is computed as the (normalized)
-        total reduction of the criterion brought by that feature.  It is also
-        known as the Gini importance.
-
-        Warning: impurity-based feature importances can be misleading for
-        high cardinality features (many unique values). See
-        :func:`sklearn.inspection.permutation_importance` as an alternative.
-
-    oob_score_ : float
-        Score of the training dataset obtained using an out-of-bag estimate.
-        This attribute exists only when ``oob_score`` is True.
-
-    oob_decision_function_ : ndarray of shape (n_samples, n_classes) or \
-            (n_samples, n_classes, n_outputs)
-        Decision function computed with out-of-bag estimate on the training
-        set. If n_estimators is small it might be possible that a data point
-        was never left out during the bootstrap. In this case,
-        `oob_decision_function_` might contain NaN. This attribute exists
-        only when ``oob_score`` is True.
-
-    estimators_samples_ : list of arrays
-        The subset of drawn samples (i.e., the in-bag samples) for each base
-        estimator. Each subset is defined by an array of the indices selected.
-
-        .. versionadded:: 1.4
-
-    See Also
-    --------
-    sklearn.tree.DecisionTreeClassifier : A decision tree classifier.
-    sklearn.ensemble.ExtraTreesClassifier : Ensemble of extremely randomized
-        tree classifiers.
-    sklearn.ensemble.HistGradientBoostingClassifier : A Histogram-based Gradient
-        Boosting Classification Tree, very fast for big datasets (n_samples >=
-        10_000).
-
-    Notes
-    -----
-    The default values for the parameters controlling the size of the trees
-    (e.g. ``max_depth``, ``min_samples_leaf``, etc.) lead to fully grown and
-    unpruned trees which can potentially be very large on some data sets. To
-    reduce memory consumption, the complexity and size of the trees should be
-    controlled by setting those parameter values.
-
-    The features are always randomly permuted at each split. Therefore,
-    the best found split may vary, even with the same training data,
-    ``max_features=n_features`` and ``bootstrap=False``, if the improvement
-    of the criterion is identical for several splits enumerated during the
-    search of the best split. To obtain a deterministic behaviour during
-    fitting, ``random_state`` has to be fixed.
-
-    References
-    ----------
-    .. [1] L. Breiman, "Random Forests", Machine Learning, 45(1), 5-32, 2001.
-
-    Examples
-    --------
-    >>> from sklearn.ensemble import RandomForestClassifier
-    >>> from sklearn.datasets import make_classification
-    >>> X, y = make_classification(n_samples=1000, n_features=4,
-    ...                            n_informative=2, n_redundant=0,
-    ...                            random_state=0, shuffle=False)
-    >>> clf = RandomForestClassifier(max_depth=2, random_state=0)
-    >>> clf.fit(X, y)
-    RandomForestClassifier(...)
-    >>> print(clf.predict([[0, 0, 0, 0]]))
-    [1]
-    """
 
     _parameter_constraints: dict = {
         **ForestClassifier._parameter_constraints,
@@ -341,6 +32,9 @@ class OSRandomForestClassifier(ForestClassifier):
     def __init__(
         self,
         oversampling_strategy="random",
+        print_indices_list=None,
+        data_name=None,
+        iteration=None,
         n_estimators=100,
         *,
         criterion="gini",
@@ -363,7 +57,13 @@ class OSRandomForestClassifier(ForestClassifier):
         monotonic_cst=None,
     ):
         super().__init__(
-            estimator=OSDecisionTreeClassifier(oversampling_strategy=oversampling_strategy, random_state=random_state),
+            estimator=OSDecisionTreeClassifier(
+                oversampling_strategy=oversampling_strategy,
+                print_var=False,
+                index=None,
+                data_name=data_name,
+                iteration=iteration,
+            ),
             n_estimators=n_estimators,
             estimator_params=(
                 "criterion",
@@ -398,15 +98,40 @@ class OSRandomForestClassifier(ForestClassifier):
         self.min_impurity_decrease = min_impurity_decrease
         self.monotonic_cst = monotonic_cst
         self.ccp_alpha = ccp_alpha
-
         self.oversampling_strategy = oversampling_strategy
+        self.current_tree_count = 0
+        self.print_indices_list = print_indices_list if print_indices_list is not None else []
+        self.data_name = data_name
+        self.iteration = iteration
 
+    def _make_estimator(self, append=True, random_state=None):
+        tree_index = self.current_tree_count
+        print_var = tree_index in self.print_indices_list
+        estimator = clone(self.estimator_)
+        estimator.set_params(**{p: getattr(self, p) for p in self.estimator_params},
+                             print_var=print_var,
+                             index=tree_index,
+                             )
+        
+        self.current_tree_count += 1
+
+        if random_state is not None:
+            _set_random_states(estimator, random_state)
+
+        if append:
+            self.estimators_.append(estimator)
+
+        return estimator
 
 class OSDecisionTreeClassifier(DecisionTreeClassifier):
     def __init__(
         self,
         *,
+        print_var=False,
+        index=None,
         oversampling_strategy="random",
+        data_name=None,
+        iteration=None,
         criterion="gini",
         splitter="best",
         max_depth=None,
@@ -421,7 +146,6 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
         ccp_alpha=0.0,
         monotonic_cst=None,
     ):
-        # print(f"Oversampling strategy: {oversampling_strategy}")
         super().__init__(
             criterion=criterion,
             splitter=splitter,
@@ -438,6 +162,11 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
             monotonic_cst=monotonic_cst,
         )
         self.oversampling_strategy = oversampling_strategy
+        self.print_var = print_var
+        self.index = None
+        self.data_name = data_name
+        self.iteration = iteration
+        self.visualization_pack = None
 
     def _fit(
         self,
@@ -448,15 +177,13 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
         missing_values_in_feature_mask=None,
     ):
         if self.oversampling_strategy == "random":
-            sampler = RandomOverSampler(random_state=self.random_state)
+            sampler = RandomOverSampler()
         elif self.oversampling_strategy == "SMOTE":
-            sampler = SMOTE(random_state=self.random_state)
-            # print(f"Using SMOTE with random_state={self.random_state} to generate synthetic samples.")
+            sampler = SMOTE()
         elif  self.oversampling_strategy == "BorderlineSMOTE":
-            sampler = BorderlineSMOTE(random_state=self.random_state)
-            # print(f"Using BorderlineSMOTE with random_state={self.random_state} to generate synthetic samples.")
+            sampler = BorderlineSMOTE()
         elif self.oversampling_strategy == "ADASYN":
-            sampler = ADASYN(random_state=self.random_state)
+            sampler = ADASYN()
         else:
             raise ValueError(
                 f"Oversampling strategy {self.oversampling_strategy} is not supported."
@@ -464,20 +191,13 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
 
         X_drawn, y_drawn = _unwrap_data(X, y, sample_weight)
         X_resampled, y_resampled = sampler.fit_resample(X_drawn, y_drawn)
-        count_1 = sum(y_resampled == 1)
-        count_0 = sum(y_resampled == 0)
-        # print(f"Count of 1s: {count_1}, Count of 0s: {count_0}")
 
         sample_weight = [1] * len(X_drawn) + [0.5] * (len(X_resampled) - len(X_drawn))
-        # sample_weight = None
 
-        # print(f"len X_drawn: {len(X_drawn)}")
-        # print(f"len X_resampled: {len(X_resampled)}")
-        # print(X_drawn[:6, 0])
-        # print(X_resampled[:6, 0])
+        if self.print_var:
+            self.visualization_pack = [X_drawn, X_resampled, y_resampled, self.oversampling_strategy, self.data_name, self.index, self.iteration]
 
         return super()._fit(
-            # X, y,
             X_resampled,
             y_resampled,
             sample_weight=sample_weight,
