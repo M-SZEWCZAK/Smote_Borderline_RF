@@ -16,27 +16,28 @@ warnings.filterwarnings('ignore')
 class Comparator:
     def __init__(
             self,
-            datasets=[[fetch_datasets()['us_crime'].data, fetch_datasets()['us_crime'].target],
-                      [fetch_datasets()['letter_img'].data, fetch_datasets()['letter_img'].target]],
             test_size=0.2,
             oversampling_strategies=['random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'], # 'random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'
             metrics=['precision', 'recall', 'f1-score', 'accuracy'], # 'precision', 'recall', 'f1-score', 'accuracy'
             n_trees=100,
             iterations=100,
             print_indices_list=[[0]] + [[]] * 99,
-            dataset_name=['us_crime', 'letter_img'],
+            dataset_names=['us_crime', 'letter_img'],
             mode='both' # 'both', 'bagging', 'augmentation'
     ):
-        self.datasets = datasets
         self.test_size = test_size
         self.oversampling_strategies = oversampling_strategies
         self.metrics = metrics
         self.n_trees = n_trees
         self.iterations = iterations
         self.print_indices_list = print_indices_list
-        self.dataset_name = dataset_name
+        self.dataset_names = dataset_names
+        self.datasets = self.fetch_datasets()
         self.mode = mode
         self.visuals = sum(len(indices) for indices in self.print_indices_list if indices)
+
+    def fetch_datasets(self):
+        return [[fetch_datasets()[name].data, fetch_datasets()[name].target] for name in self.dataset_names]
 
     def prepare_data(self, dataset):
         return train_test_split(dataset[0], dataset[1], stratify=dataset[1], test_size=self.test_size)
@@ -51,7 +52,7 @@ class Comparator:
         print(f'Oversampling strategies: {self.oversampling_strategies}')
         print(f'Metrics: {self.metrics}')
         print(f'Number of trees: {self.n_trees}')
-        print(f'Datasets: {self.dataset_name}')
+        print(f'Datasets: {self.dataset_names}')
 
         self.results_bgg = []
         self.results_aug = []
@@ -59,7 +60,7 @@ class Comparator:
         self.visualization_data_bgg = []
         self.visualization_data_aug = []
         for i, dataset in enumerate(self.datasets):
-            dataset_name = self.dataset_name[i]
+            dataset_name = self.dataset_names[i]
             print(f'\n \n + DATASET: {dataset_name}')
             if self.mode == 'both':
                 bgg_results, bgg_visualization_data = self.compute_bagging(dataset, dataset_name)
@@ -261,7 +262,7 @@ class Comparator:
                     idx += 1
 
     def plot_violin_metrics(self, dataset_index):
-        dataset_name = self.dataset_name[dataset_index]
+        dataset_name = self.dataset_names[dataset_index]
         if self.mode == 'both':
             names = [f"{name} bagging" for name in self.oversampling_strategies] + \
                     [f"{name} augmentation" for name in self.oversampling_strategies] + \
@@ -414,7 +415,7 @@ class Comparator:
         print('=' * 73, '\n')
 
         for i in range(len(self.datasets)):
-            print('*' * 5, f' DATASET: {self.dataset_name[i]}\n')
+            print('*' * 5, f' DATASET: {self.dataset_names[i]}\n')
             class_names = np.unique(self.datasets[i][1])
 
             if self.mode in ['both', 'bagging']:
