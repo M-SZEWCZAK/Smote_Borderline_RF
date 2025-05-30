@@ -13,10 +13,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 rf = OSRandomForestClassifier(oversampling_strategy='BorderlineSMOTE',
-                              print_indices_list=[1],
-                              n_estimators=50,
-                              data_name='us_crime',
-                              iteration=1)
+                              n_estimators=50)
 rf.fit(X_train, y_train)
 y_pred = rf.predict(X_test)
 

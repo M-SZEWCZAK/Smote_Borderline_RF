@@ -32,9 +32,6 @@ class OSRandomForestClassifier(ForestClassifier):
     def __init__(
         self,
         oversampling_strategy="random",
-        print_indices_list=None,
-        data_name=None,
-        iteration=None,
         n_estimators=100,
         *,
         criterion="gini",
@@ -59,10 +56,7 @@ class OSRandomForestClassifier(ForestClassifier):
         super().__init__(
             estimator=OSDecisionTreeClassifier(
                 oversampling_strategy=oversampling_strategy,
-                print_var=False,
-                index=None,
-                data_name=data_name,
-                iteration=iteration,
+                index=None
             ),
             n_estimators=n_estimators,
             estimator_params=(
@@ -100,16 +94,11 @@ class OSRandomForestClassifier(ForestClassifier):
         self.ccp_alpha = ccp_alpha
         self.oversampling_strategy = oversampling_strategy
         self.current_tree_count = 0
-        self.print_indices_list = print_indices_list if print_indices_list is not None else []
-        self.data_name = data_name
-        self.iteration = iteration
 
     def _make_estimator(self, append=True, random_state=None):
         tree_index = self.current_tree_count
-        print_var = tree_index in self.print_indices_list
         estimator = clone(self.estimator_)
         estimator.set_params(**{p: getattr(self, p) for p in self.estimator_params},
-                             print_var=print_var,
                              index=tree_index,
                              )
         
@@ -127,11 +116,8 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
     def __init__(
         self,
         *,
-        print_var=False,
         index=None,
         oversampling_strategy="random",
-        data_name=None,
-        iteration=None,
         criterion="gini",
         splitter="best",
         max_depth=None,
@@ -162,10 +148,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
             monotonic_cst=monotonic_cst,
         )
         self.oversampling_strategy = oversampling_strategy
-        self.print_var = print_var
-        self.index = None
-        self.data_name = data_name
-        self.iteration = iteration
+        self.index = index
         self.visualization_pack = None
 
     def _fit(
@@ -194,8 +177,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
 
         sample_weight = [1] * len(X_drawn) + [0.5] * (len(X_resampled) - len(X_drawn))
 
-        if self.print_var:
-            self.visualization_pack = [X_drawn, X_resampled, y_resampled, self.oversampling_strategy, self.data_name, self.index, self.iteration]
+        self.visualization_pack = [X_drawn, X_resampled, y_resampled, self.oversampling_strategy, self.index]
 
         return super()._fit(
             X_resampled,
