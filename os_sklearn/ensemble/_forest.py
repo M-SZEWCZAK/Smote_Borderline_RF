@@ -1,11 +1,8 @@
 import numpy as np
 from sklearn.utils._param_validation import StrOptions
-import matplotlib.pyplot as plt
 from sklearn.ensemble._forest import ForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE, ADASYN
-from sklearn.base import clone
-from sklearn.ensemble._base import _set_random_states
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -55,8 +52,7 @@ class OSRandomForestClassifier(ForestClassifier):
     ):
         super().__init__(
             estimator=OSDecisionTreeClassifier(
-                oversampling_strategy=oversampling_strategy,
-                index=None
+                oversampling_strategy=oversampling_strategy
             ),
             n_estimators=n_estimators,
             estimator_params=(
@@ -93,30 +89,11 @@ class OSRandomForestClassifier(ForestClassifier):
         self.monotonic_cst = monotonic_cst
         self.ccp_alpha = ccp_alpha
         self.oversampling_strategy = oversampling_strategy
-        self.current_tree_count = 0
-
-    def _make_estimator(self, append=True, random_state=None):
-        tree_index = self.current_tree_count
-        estimator = clone(self.estimator_)
-        estimator.set_params(**{p: getattr(self, p) for p in self.estimator_params},
-                             index=tree_index,
-                             )
-        
-        self.current_tree_count += 1
-
-        if random_state is not None:
-            _set_random_states(estimator, random_state)
-
-        if append:
-            self.estimators_.append(estimator)
-
-        return estimator
 
 class OSDecisionTreeClassifier(DecisionTreeClassifier):
     def __init__(
         self,
         *,
-        index=None,
         oversampling_strategy="random",
         criterion="gini",
         splitter="best",
@@ -148,8 +125,6 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
             monotonic_cst=monotonic_cst,
         )
         self.oversampling_strategy = oversampling_strategy
-        self.index = index
-        self.visualization_pack = None
 
     def _fit(
         self,
@@ -177,7 +152,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
 
         sample_weight = [1] * len(X_drawn) + [0.5] * (len(X_resampled) - len(X_drawn))
 
-        self.visualization_pack = [X_drawn, X_resampled, y_resampled, self.oversampling_strategy, self.index]
+        self.visualization_pack = [np.array(X_drawn), np.array(X_resampled), np.array(y_resampled)]
 
         return super()._fit(
             X_resampled,

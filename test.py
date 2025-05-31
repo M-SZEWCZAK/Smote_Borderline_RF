@@ -19,3 +19,4 @@ y_pred = rf.predict(X_test)
 
 print("=== RF with SMOTE ===")
 print(classification_report(y_test, y_pred))
+print(rf.estimators_[0].visualization_pack)
