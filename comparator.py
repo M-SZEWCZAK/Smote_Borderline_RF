@@ -459,7 +459,7 @@ class Comparator:
         elif X_resampled.shape[1] == 2:
             X_plot = X_resampled
         else:
-            umap_model = UMAP(n_components=2)
+            umap_model = UMAP(n_components=2, random_state=42)
             X_plot = umap_model.fit_transform(X_resampled)
 
         marker = len(X_drawn)
