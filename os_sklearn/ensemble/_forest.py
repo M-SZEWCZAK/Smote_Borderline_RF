@@ -152,7 +152,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
 
         sample_weight = [1] * len(X_drawn) + [0.5] * (len(X_resampled) - len(X_drawn))
 
-        self.visualization_pack = [np.array(X_drawn), np.array(X_resampled), np.array(y_resampled)]
+        self.visualization_pack = [np.array(X_drawn), np.array(X_resampled), np.array(y_resampled), self.oversampling_strategy]
 
         return super()._fit(
             X_resampled,

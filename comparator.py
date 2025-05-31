@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from umap import UMAP
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 
@@ -28,7 +29,10 @@ class Comparator:
             mode='both', # 'both', 'bagging', 'augmentation'
             seprate_plots_for_classes=False,
             plot_type = 'box', # 'box', 'violin'
-            plot_datasets=False
+            plot_datasets=False,
+            save_forests=False, # saves only one forest per iteration
+            save_all_results=False, # takes lots of resources (save only one forest data per iteration)
+            results_path='results.csv'
     ):
         self.datasets = datasets
         self.test_size = test_size
@@ -39,20 +43,24 @@ class Comparator:
         self.dataset_names = dataset_names
         self.mode = mode
         self.prepare_data()
-        self.results = pd.DataFrame(columns=['forest_index', 
-                                             'dataset', 
-                                             'type', 
-                                             'strategy', 
-                                             'iteration', 
-                                             'class', 
-                                             'metric', 
-                                             'value'])
+        self.results_storage = []
+        self.bagging_storage = []
         self.augmentation_storage = []
+        self.baseline_storage = []
         self.forests_storage = []
         self.forest_counter = 0
         self.plot_classes = seprate_plots_for_classes
         self.plot_type = plot_type
         self.plot_datasets = plot_datasets
+        self.save_all_results = save_all_results
+        self.save_forests = save_forests
+
+        self.results_path = results_path
+        if os.path.exists(self.results_path):
+            pd.DataFrame(columns=[
+                'forest_index', 'dataset', 'type', 'strategy', 'iteration',
+                'class', 'metric', 'value'
+            ]).to_csv(self.results_path, index=False)
 
 
     def prepare_data(self):
@@ -66,16 +74,40 @@ class Comparator:
 
 
     def get_forest_id(self, type, dataset_name, strategy, iteration):
-        df = self.results
-        row = df[(df['dataset'] == dataset_name) & 
-                 (df['type'] == type) &
-                 (df['strategy'] == strategy) & 
-                 (df['iteration'] == iteration)]
-        if not row.empty:
-            return row.iloc[0]['forest_index']
+        df = self.load_results({'type': type, 'dataset': dataset_name, 'strategy': strategy, 'iteration': iteration})
+        if not df.empty:
+            return df.iloc[0]['forest_index']
         else:
             return None
         
+
+    def get_forest(self, forest_index):
+        if forest_index >= self.forest_counter:
+            raise ValueError(f"Forest index {forest_index} is out of bounds. Maximum index is {self.forest_counter - 1}.")
+        
+        data = next((item for item in self.forests_storage if item[0] == forest_index), None)
+        if data is None:
+            raise ValueError(f"Forest with {forest_index} wasn't saved.")
+        return data[1]
+
+
+    def load_results(self, filters=None):
+        chunks = pd.read_csv(self.results_path, chunksize=1000)
+        filtered_chunks = []
+        for chunk in chunks:
+            if filters:
+                for key, value in filters.items():
+                    chunk = chunk[chunk[key] == value]
+            filtered_chunks.append(chunk)
+        if filtered_chunks:
+            df = pd.concat(filtered_chunks, ignore_index=True)
+        else:
+            df = pd.DataFrame(columns=[
+                'forest_index', 'dataset', 'type', 'strategy', 'iteration',
+                'class', 'metric', 'value'
+            ])
+        return df
+
 
     def compute(self):
         print('=========================================================================')
@@ -102,6 +134,7 @@ class Comparator:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
             self.compute_baseline(data, dataset_name, labels)
             
+        self.save_results()
         print('\n=========================================================================')
         print('==================     COMPUTING ENDED SUCCESSFULLY      ================')
         print('=========================================================================\n')
@@ -119,50 +152,54 @@ class Comparator:
     def extract_metrics(self, type, report, dataset_name, strategy, iteration, labels, forest, X_test, y_test, y_pred):
 
         for cls in labels:
-            for metric in self.metrics:
-                if metric in ['accuracy', 'auc', 'g-mean']:
-                    continue
-                if metric in report[str(cls)]:
-                    self.results.loc[len(self.results)] = [
-                        self.forest_counter,
-                        dataset_name,
+            for metric in ['precision', 'recall', 'f1-score']:
+                if metric in self.metrics:
+                    self.results_storage.append([
+                        self.forest_counter, 
+                        dataset_name, 
                         type, 
-                        strategy,
+                        strategy, 
                         iteration, 
                         str(cls), 
                         metric, 
-                        report[str(cls)][metric]]
+                        report[str(cls)][metric]])
                 else:
-                    raise ValueError(f"Metric {metric} not found in report for class {cls}.")
+                    continue
                         
         if 'accuracy' in self.metrics:
-            self.results.loc[len(self.results)] = [
-                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'accuracy', report['accuracy']]
+            self.results_storage.append([
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'accuracy', report['accuracy']])
             
         if 'precision' in self.metrics:
-            self.results.loc[len(self.results)] = [
-                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'precision', report['macro avg']['precision']]
+            self.results_storage.append([
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'precision', report['macro avg']['precision']])
             
         if 'recall' in self.metrics:
-            self.results.loc[len(self.results)] = [
-                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'recall', report['macro avg']['recall']]
+            self.results_storage.append([
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'recall', report['macro avg']['recall']])
             
         if 'f1-score' in self.metrics:
-            self.results.loc[len(self.results)] = [
-                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'f1-score', report['macro avg']['f1-score']]
+            self.results_storage.append([
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'f1-score', report['macro avg']['f1-score']])
         
         if 'auc' in self.metrics:
             y_proba = forest.predict_proba(X_test)[:, 1]
             auc = roc_auc_score(y_test, y_proba)
-            self.results.loc[len(self.results)] = [
-                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'auc', auc]
+            self.results_storage.append([
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'auc', auc])
                     
         if 'g-mean' in self.metrics:
             reacalls = recall_score(y_test, y_pred, average=None)
             gmean_val = gmean(reacalls)
-            self.results.loc[len(self.results)] = [
-                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'g-mean', gmean_val]
-            
+            self.results_storage.append([
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'g-mean', gmean_val])
+
+
+    def save_results(self):
+        pd.DataFrame(self.results_storage, columns=[
+            'forest_index', 'dataset', 'type', 'strategy', 'iteration',
+            'class', 'metric', 'value'
+        ]).to_csv(self.results_path, index=False)
 
 
     def compute_bagging(self, data, dataset_name, labels):
@@ -181,11 +218,37 @@ class Comparator:
                     n_estimators=self.n_trees)
                 
                 forest.fit(X_train, y_train)
-                self.forests_storage.append(forest)
+
                 y_pred = forest.predict(X_test)
                 report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in labels])
                 self.extract_metrics('bagging', report, dataset_name, strategy, j, labels, forest, X_test, y_test, y_pred)
-                    
+
+                if self.save_all_results:
+                    if self.save_forests:
+                        self.forests_storage.append([self.forest_counter,forest])
+                    for tree_idx, tree in enumerate(forest.estimators_):
+                        self.bagging_storage.append([self.forest_counter,
+                                                    tree.visualization_pack[0],
+                                                    tree.visualization_pack[1],
+                                                    tree.visualization_pack[2],
+                                                    dataset_name,
+                                                    strategy, 
+                                                    j,
+                                                    tree_idx])
+                        
+                if  j == 0 and not self.save_all_results:
+                    if self.save_forests:
+                        self.forests_storage.append([self.forest_counter,forest])
+                    tree = forest.estimators_[0]
+                    self.bagging_storage.append([self.forest_counter,
+                                                tree.visualization_pack[0],
+                                                tree.visualization_pack[1],
+                                                tree.visualization_pack[2],
+                                                dataset_name,
+                                                strategy, 
+                                                j,
+                                                0])                                                 
+
                 self.forest_counter += 1
                     
 
@@ -217,13 +280,18 @@ class Comparator:
 
                 X_resampled, y_resampled = sampler.fit_resample(X_train, y_train)
                 forest.fit(X_resampled, y_resampled)
-                self.forests_storage.append(forest)
+
                 y_pred = forest.predict(X_test)
                 report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in labels])
                 self.extract_metrics('augmentation', report, dataset_name, strategy, j, labels, forest, X_test, y_test, y_pred)
 
-                self.augmentation_storage.append([
-                    self.forest_counter, X_train, X_resampled, y_resampled])
+                if self.save_all_results or j == 0:
+                    if self.save_forests:
+                        self.forests_storage.append(forest)
+
+                    self.augmentation_storage.append([
+                        self.forest_counter, X_train, X_resampled, y_resampled, dataset_name, strategy, j])
+                    
                 self.forest_counter += 1
     
 
@@ -240,16 +308,24 @@ class Comparator:
                 n_estimators=self.n_trees
             )
             forest.fit(X_train, y_train)
-            self.forests_storage.append(forest)
+
             y_pred = forest.predict(X_test)
             report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in labels])
 
             self.extract_metrics('baseline', report, dataset_name, '-', j, labels, forest, X_test, y_test, y_pred)
+
+            if self.save_all_results or j == 0:
+                if self.save_forests:
+                    self.forests_storage.append(forest)
+
+                self.baseline_storage.append([
+                    self.forest_counter, X_train, X_train, y_train, dataset_name])
+                
             self.forest_counter += 1
     
 
     def print_table(self, type, dataset, strategy, labels):
-        df = self.results
+        df = self.load_results({'type': type, 'dataset': dataset, 'strategy': strategy})
         for metric in self.metrics:
             if metric in ['accuracy', 'auc', 'g-mean']:
                 continue
@@ -287,7 +363,7 @@ class Comparator:
         else:
             raise ValueError("plot_type must be either 'box' or 'violin'.")
         
-        df = self.results
+        df = self.load_results({'dataset': dataset})
 
         palettes = [
             ["#b39ddb"], 
@@ -343,33 +419,39 @@ class Comparator:
 
         if forest_idx >= self.forest_counter:
             raise ValueError(f"Forest index {forest_idx} is out of bounds. Maximum index is {self.forest_counter - 1}.")
+        
+        bagging_ids = [item[0] for item in self.bagging_storage] if self.bagging_storage else []
+        augmentation_ids = [item[0] for item in self.augmentation_storage] if self.augmentation_storage else []
 
-        rows = self.results[self.results['forest_index'] == forest_idx]
-        dataset = rows['dataset'].values[0]
-        dataset_idx = self.dataset_names.index(dataset)
-        labels = self.labels[dataset_idx]
-        iteration = rows['iteration'].values[0]
-        strategy = rows['strategy'].values[0]
-        type = rows['type'].values[0]
+        if forest_idx in bagging_ids:
+            type = 'bagging'
+        elif forest_idx in augmentation_ids:
+            type = 'augmentation'
+        else:
+            type = 'baseline'
 
         if type == 'bagging':
             if tree_idx is None:
                 raise ValueError("For bagging tree_idx must be provided.")
             
-            forest = self.forests_storage[forest_idx]
-            visualization_data = forest.estimators_[tree_idx].visualization_pack
-            X_drawn, X_resampled, y_resampled = visualization_data[0], visualization_data[1], visualization_data[2]
+            visualization_data = next((item for item in self.bagging_storage if item[0] == forest_idx and item[7] == tree_idx), None)
+            _, X_drawn, X_resampled, y_resampled, dataset, strategy, iteration, _ = visualization_data
             title = f"(TSNE) {dataset} after {strategy} bagging (iteration: {iteration}, tree: {tree_idx})"
 
         elif type == 'augmentation':
-
             visualization_data = next((item for item in self.augmentation_storage if item[0] == forest_idx), None)
-            _, X_drawn, X_resampled, y_resampled = visualization_data
+            _, X_drawn, X_resampled, y_resampled, dataset, strategy, iteration = visualization_data
             title = f"(TSNE) {dataset} after {strategy} augmentation (iteration: {iteration})"
         
         else:
-            X_drawn, X_resampled, y_resampled = self.datasets[dataset_idx][0], self.datasets[dataset_idx][0], self.datasets[dataset_idx][2]
+            visualization_data = next((item for item in self.baseline_storage if item[0] == forest_idx), None)
+            if visualization_data is None:
+                raise ValueError(f"No baseline data for forest index - {forest_idx}.")
+            _, X_drawn, X_resampled, y_resampled, dataset = visualization_data
             title = f"(TSNE) {dataset}"
+
+        dataset_idx = self.dataset_names.index(dataset)
+        labels = self.labels[dataset_idx]
 
         # Prepare data for plotting
         if X_resampled.shape[1] == 1:
@@ -434,9 +516,8 @@ class Comparator:
 
 
     def plot_dataset(self, dataset_name):
-        df = self.results
-        forest_idx = df[(df['dataset'] == dataset_name) & 
-                        (df['type'] == 'baseline') & (df['strategy'] == '-')]['forest_index'].values[0]
+        df = self.load_results({'type': 'baseline', 'dataset': dataset_name, 'strategy': '-'})
+        forest_idx = df['forest_index'].values[0]
         self.plot_data(forest_idx)
 
 
@@ -456,15 +537,15 @@ class Comparator:
                 for strategy in self.oversampling_strategies:
                     print('\n', '\n', f'\n+++ {strategy} - bagging')
                     if self.plot_datasets:
-                        idx = self.get_forest_id('bagging', dataset_name, strategy, 1)
-                        self.plot_data(forest_idx=idx, tree_idx=1)
+                        idx = self.get_forest_id('bagging', dataset_name, strategy, 0)
+                        self.plot_data(forest_idx=idx, tree_idx=0)
                     self.print_table('bagging', dataset_name, strategy, labels)
 
             if self.mode in ['both', 'augmentation']:
                 for strategy in self.oversampling_strategies:
                     print(f'\n \n+++ {strategy} - augmentation +++')
                     if self.plot_datasets:
-                        idx = self.get_forest_id('augmentation', dataset_name, strategy, 1)
+                        idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
                         self.plot_data(forest_idx=idx)
                     self.print_table('augmentation', dataset_name, strategy, labels)
 
