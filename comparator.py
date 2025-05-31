@@ -1,7 +1,8 @@
 from imblearn.datasets import fetch_datasets
 from imblearn.over_sampling import RandomOverSampler, SMOTE, BorderlineSMOTE, ADASYN
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, roc_auc_score, recall_score
+from scipy.stats import gmean
 from sklearn.model_selection import train_test_split
 from os_sklearn.ensemble._forest import OSRandomForestClassifier
 import numpy as np
@@ -16,159 +17,188 @@ warnings.filterwarnings('ignore')
 class Comparator:
     def __init__(
             self,
+            datasets=[[fetch_datasets()['us_crime'].data, fetch_datasets()['us_crime'].target],
+                      [fetch_datasets()['letter_img'].data, fetch_datasets()['letter_img'].target]],
             test_size=0.2,
             oversampling_strategies=['random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'], # 'random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'
-            metrics=['precision', 'recall', 'f1-score', 'accuracy'], # 'precision', 'recall', 'f1-score', 'accuracy'
+            metrics=['precision', 'recall', 'f1-score', 'accuracy', 'auc', 'g-mean'], # 'precision', 'recall', 'f1-score', 'accuracy', 'auc', 'g-mean'
             n_trees=100,
             iterations=100,
-            print_indices_list=[[0]] + [[]] * 99,
             dataset_names=['us_crime', 'letter_img'],
-            mode='both' # 'both', 'bagging', 'augmentation'
+            mode='both', # 'both', 'bagging', 'augmentation'
+            seprate_plots_for_classes=False,
+            plot_type = 'box', # 'box', 'violin'
+            plot_datasets=False
     ):
+        self.datasets = datasets
         self.test_size = test_size
         self.oversampling_strategies = oversampling_strategies
         self.metrics = metrics
         self.n_trees = n_trees
         self.iterations = iterations
-        self.print_indices_list = print_indices_list
         self.dataset_names = dataset_names
-        self.datasets = self.fetch_datasets()
         self.mode = mode
-        self.visuals = sum(len(indices) for indices in self.print_indices_list if indices)
+        self.prepare_data()
+        self.results = pd.DataFrame(columns=['forest_index', 
+                                             'dataset', 
+                                             'type', 
+                                             'strategy', 
+                                             'iteration', 
+                                             'class', 
+                                             'metric', 
+                                             'value'])
+        self.augmentation_storage = []
+        self.forests_storage = []
+        self.forest_counter = 0
+        self.plot_classes = seprate_plots_for_classes
+        self.plot_type = plot_type
+        self.plot_datasets = plot_datasets
 
-    def fetch_datasets(self):
-        return [[fetch_datasets()[name].data, fetch_datasets()[name].target] for name in self.dataset_names]
 
-    def prepare_data(self, dataset):
-        return train_test_split(dataset[0], dataset[1], stratify=dataset[1], test_size=self.test_size)
+    def prepare_data(self):
+        self.labels = []
+        for i in range(len(self.datasets)):
+            dataset = self.datasets[i]
+            X, y = dataset[0], dataset[1]
+            labels = np.unique(y)
+            self.datasets[i] = train_test_split(X, y, test_size=self.test_size, stratify=y)
+            self.labels.append(labels)
+
+
+    def get_forest_id(self, type, dataset_name, strategy, iteration):
+        df = self.results
+        row = df[(df['dataset'] == dataset_name) & 
+                 (df['type'] == type) &
+                 (df['strategy'] == strategy) & 
+                 (df['iteration'] == iteration)]
+        if not row.empty:
+            return row.iloc[0]['forest_index']
+        else:
+            return None
+        
 
     def compute(self):
-
         print('=========================================================================')
         print('=========================     START COMPUTING     =======================')
         print('=========================================================================\n')
+
+        print(f'Datasets: {self.dataset_names}')
         print(f'Mode: {self.mode}')
-        print(f'Iterations: {self.iterations}')
         print(f'Oversampling strategies: {self.oversampling_strategies}')
         print(f'Metrics: {self.metrics}')
+        print(f'Iterations: {self.iterations}')
         print(f'Number of trees: {self.n_trees}')
-        print(f'Datasets: {self.dataset_names}')
 
-        self.results_bgg = []
-        self.results_aug = []
-        self.results_rf = []
-        self.visualization_data_bgg = []
-        self.visualization_data_aug = []
-        for i, dataset in enumerate(self.datasets):
+        for i in range(len(self.datasets)):
             dataset_name = self.dataset_names[i]
+            labels = self.labels[i]
+            data = self.datasets[i]
             print(f'\n \n + DATASET: {dataset_name}')
-            if self.mode == 'both':
-                bgg_results, bgg_visualization_data = self.compute_bagging(dataset, dataset_name)
-                aug_results, aug_visualization_data = self.compute_augmentation(dataset, dataset_name)
-                rf_results = self.compute_baseline(dataset, dataset_name)
-                self.results_bgg.append(bgg_results)
-                self.results_aug.append(aug_results)
-                self.results_rf.append(rf_results)
-                self.visualization_data_bgg.append(bgg_visualization_data)
-                self.visualization_data_aug.append(aug_visualization_data)
-            elif self.mode == 'bagging':
-                bgg_results, bgg_visualization_data = self.compute_bagging(dataset, dataset_name)
-                rf_results = self.compute_baseline(dataset, dataset_name)
-                self.results_rf.append(rf_results)
-                self.results_bgg.append(bgg_results)
-                self.visualization_data_bgg.append(bgg_visualization_data)
-            elif self.mode == 'augmentation':
-                aug_results, aug_visualization_data = self.compute_augmentation(dataset, dataset_name)
-                rf_results = self.compute_baseline(dataset, dataset_name)
-                self.results_rf.append(rf_results)
-                self.results_aug.append(aug_results)
-                self.visualization_data_aug.append(aug_visualization_data)
+            if self.mode in ['both', 'bagging']:
+                self.compute_bagging(data, dataset_name, labels)
+            if self.mode in ['both', 'augmentation']:
+                self.compute_augmentation(data, dataset_name, labels)
             else:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
+            self.compute_baseline(data, dataset_name, labels)
             
         print('\n=========================================================================')
         print('==================     COMPUTING ENDED SUCCESSFULLY      ================')
         print('=========================================================================\n')
 
-    def _print_progress_bar(self, iteration, total, prefix='', length=30):
-        percent = f"{100 * (iteration / float(total)):.1f}"
-        filled_length = int(length * iteration // total)
+
+    def _print_progress_bar(self, iteration, prefix='', length=30):
+        percent = f"{100 * (iteration / float(self.iterations)):.1f}"
+        filled_length = int(length * iteration // self.iterations)
         bar = '█' * filled_length + '-' * (length - filled_length)
-        print(f'\r{prefix} |{bar}| {percent}% Complete', end='\r')
-        if iteration == total:
+        print(f'\r{prefix} |{bar}| {percent}% Complete', end='\r', flush=True)
+        if iteration == self.iterations:
             print()
 
-    def compute_bagging(self, dataset, dataset_name):
+
+    def extract_metrics(self, type, report, dataset_name, strategy, iteration, labels, forest, X_test, y_test, y_pred):
+
+        for cls in labels:
+            for metric in self.metrics:
+                if metric in ['accuracy', 'auc', 'g-mean']:
+                    continue
+                if metric in report[str(cls)]:
+                    self.results.loc[len(self.results)] = [
+                        self.forest_counter,
+                        dataset_name,
+                        type, 
+                        strategy,
+                        iteration, 
+                        str(cls), 
+                        metric, 
+                        report[str(cls)][metric]]
+                else:
+                    raise ValueError(f"Metric {metric} not found in report for class {cls}.")
+                        
+        if 'accuracy' in self.metrics:
+            self.results.loc[len(self.results)] = [
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'accuracy', report['accuracy']]
+            
+        if 'precision' in self.metrics:
+            self.results.loc[len(self.results)] = [
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'precision', report['macro avg']['precision']]
+            
+        if 'recall' in self.metrics:
+            self.results.loc[len(self.results)] = [
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'recall', report['macro avg']['recall']]
+            
+        if 'f1-score' in self.metrics:
+            self.results.loc[len(self.results)] = [
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'f1-score', report['macro avg']['f1-score']]
+        
+        if 'auc' in self.metrics:
+            y_proba = forest.predict_proba(X_test)[:, 1]
+            auc = roc_auc_score(y_test, y_proba)
+            self.results.loc[len(self.results)] = [
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'auc', auc]
+                    
+        if 'g-mean' in self.metrics:
+            reacalls = recall_score(y_test, y_pred, average=None)
+            gmean_val = gmean(reacalls)
+            self.results.loc[len(self.results)] = [
+                self.forest_counter, dataset_name, type, strategy, iteration, 'all', 'g-mean', gmean_val]
+            
+
+
+    def compute_bagging(self, data, dataset_name, labels):
+
         print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
-        visualization_data = []
-        class_names = np.unique(dataset[1])
-        if 'accuracy' not in self.metrics:
-            n_metrics = len(self.metrics) * len(class_names)
-        else:
-            n_metrics = (len(self.metrics) - 1) * len(class_names) + 1
-        results = []
 
         for strategy in self.oversampling_strategies:
-            strategy_results = [[] for _ in range(n_metrics)]
-            strategy_visualization_data = []
             for j in range(self.iterations):
-                self._print_progress_bar(j + 1, self.iterations, prefix=f'{strategy} - bagging')
-                if self.print_indices_list[j] is None:
-                    indices = None
-                else:
-                    indices = self.print_indices_list[j]
+
+                self._print_progress_bar(j + 1, prefix=f'{strategy} - bagging')
                 
-                X_train, X_test, y_train, y_test = self.prepare_data(dataset)
+                X_train, X_test, y_train, y_test = data
+
                 forest = OSRandomForestClassifier(
                     oversampling_strategy=strategy,
-                    print_indices_list=indices,
-                    n_estimators=self.n_trees,
-                    data_name=dataset_name,
-                    iteration=j)
-                forest.fit(X_train, y_train)
-
-                if indices is not None:
-                    for i in indices:
-                        strategy_visualization_data.append(forest.estimators_[i].visualization_pack)
-
-                y_pred = forest.predict(X_test)
-                report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in class_names])
+                    n_estimators=self.n_trees)
                 
-                idx = 0
-                for cls in class_names:
-                    for metric in self.metrics:
-                        if metric == 'accuracy':
-                            continue
-                        if metric in report[str(cls)]:
-                            strategy_results[idx].append(report[str(cls)][metric])
-                        else:
-                            raise ValueError(f"Metric {metric} not found in report for class {cls}.")
-                        idx += 1
-                if 'accuracy' in self.metrics:
-                    strategy_results[-1].append(report['accuracy'])
+                forest.fit(X_train, y_train)
+                self.forests_storage.append(forest)
+                y_pred = forest.predict(X_test)
+                report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in labels])
+                self.extract_metrics('bagging', report, dataset_name, strategy, j, labels, forest, X_test, y_test, y_pred)
+                    
+                self.forest_counter += 1
+                    
 
-            results.append(strategy_results)
-            visualization_data.append(strategy_visualization_data)
+    def compute_augmentation(self, data, dataset_name, labels):
 
-        return results, visualization_data
-
-    def compute_augmentation(self, dataset, dataset_name):
         print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
-        visualization_data = []
-        class_names = np.unique(dataset[1])
-        if 'accuracy' not in self.metrics:
-            n_metrics = len(self.metrics) * len(class_names)
-        else:
-            n_metrics = (len(self.metrics) - 1) * len(class_names) + 1
-        results = []
         
         for strategy in self.oversampling_strategies:
-            strategy_results = [[] for _ in range(n_metrics)]
-            strategy_visualization_data = []
             for j in range(self.iterations):
-                self._print_progress_bar(j + 1, self.iterations, prefix=f'{strategy} - augmentation')
 
-                X_train, X_test, y_train, y_test = self.prepare_data(dataset)
+                self._print_progress_bar(j + 1, prefix=f'{strategy} - augmentation')
+
+                X_train, X_test, y_train, y_test = data
 
                 if strategy == "random":
                     sampler = RandomOverSampler()
@@ -186,194 +216,182 @@ class Comparator:
                 )
 
                 X_resampled, y_resampled = sampler.fit_resample(X_train, y_train)
-
                 forest.fit(X_resampled, y_resampled)
+                self.forests_storage.append(forest)
                 y_pred = forest.predict(X_test)
+                report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in labels])
+                self.extract_metrics('augmentation', report, dataset_name, strategy, j, labels, forest, X_test, y_test, y_pred)
 
-                if self.print_indices_list[j] is not None:
-                    strategy_visualization_data.append([X_train, X_resampled, y_resampled, dataset_name, strategy, j])
-
-                report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in class_names])
-                idx = 0
-                for cls in class_names:
-                    for metric in self.metrics:
-                        if metric == 'accuracy':
-                            continue
-                        if metric in report[str(cls)]:
-                            strategy_results[idx].append(report[str(cls)][metric])
-                        else:
-                            raise ValueError(f"Metric {metric} not found in report for class {cls}.")
-                        idx += 1
-                if 'accuracy' in self.metrics:
-                    strategy_results[-1].append(report['accuracy'])
-            
-            results.append(strategy_results)
-            visualization_data.append(strategy_visualization_data)
-                
-        return results, visualization_data
+                self.augmentation_storage.append([
+                    self.forest_counter, X_train, X_resampled, y_resampled])
+                self.forest_counter += 1
     
-    def compute_baseline(self, dataset, dataset_name):
-        print('\n-=-=-=-=-=-=   BASELINE   =-=-=-=-=-')
-        class_names = np.unique(dataset[1])
-        if 'accuracy' not in self.metrics:
-            n_metrics = len(self.metrics) * len(class_names)
-        else:
-            n_metrics = (len(self.metrics) - 1) * len(class_names) + 1
-        results = [[] for _ in range(n_metrics)]
-        for j in range(self.iterations):
-            self._print_progress_bar(j + 1, self.iterations, prefix='baseline')
 
-            X_train, X_test, y_train, y_test = self.prepare_data(dataset)
-                
+    def compute_baseline(self, data, dataset_name, labels):
+
+        print('\n-=-=-=-=-=-=   BASELINE   =-=-=-=-=-')
+
+        for j in range(self.iterations):
+
+            self._print_progress_bar(j + 1, prefix='baseline')
+
+            X_train, X_test, y_train, y_test = data
             forest = RandomForestClassifier(
                 n_estimators=self.n_trees
             )
-
             forest.fit(X_train, y_train)
+            self.forests_storage.append(forest)
             y_pred = forest.predict(X_test)
-            report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in class_names])
-            idx = 0
-            for cls in class_names:
-                for metric in self.metrics:
-                    if metric == 'accuracy':
-                        continue
-                    if metric in report[str(cls)]:
-                        results[idx].append(report[str(cls)][metric])
-                    else:
-                        raise ValueError(f"Metric {metric} not found in report for class {cls}.")
-                    idx += 1
-            if 'accuracy' in self.metrics:
-                results[-1].append(report['accuracy'])
-                
-        return results
+            report = classification_report(y_test, y_pred, output_dict=True, target_names=[str(c) for c in labels])
+
+            self.extract_metrics('baseline', report, dataset_name, '-', j, labels, forest, X_test, y_test, y_pred)
+            self.forest_counter += 1
     
-    def print_table(self, results, class_names, metrics):
-        idx = 0
-        for metric in metrics:
-            if metric == 'accuracy':
-                vals = np.array(results[-1])
-                print(f"\n{'Accuracy':>12} {'min':>12} {'avg':>12} {'max':>12} {'std':>12}")
-                print(f"{'':>12} {np.min(vals):12.4f} {np.mean(vals):12.4f} {np.max(vals):12.4f} {np.std(vals):12.4f}")
+
+    def print_table(self, type, dataset, strategy, labels):
+        df = self.results
+        for metric in self.metrics:
+            if metric in ['accuracy', 'auc', 'g-mean']:
+                continue
             else:
                 print(f"\n{'':>12} {'min_'+metric:>12} {'avg_'+metric:>12} {'max_'+metric:>12} {'std_'+metric:>12}")
-                for cidx, cls in enumerate(class_names):
-                    vals = np.array(results[idx])
-                    print(f"{str(cls):>12} {np.min(vals):12.4f} {np.mean(vals):12.4f} {np.max(vals):12.4f} {np.std(vals):12.4f}")
-                    idx += 1
-
-    def plot_violin_metrics(self, dataset_index):
-        dataset_name = self.dataset_names[dataset_index]
-        if self.mode == 'both':
-            names = [f"{name} bagging" for name in self.oversampling_strategies] + \
-                    [f"{name} augmentation" for name in self.oversampling_strategies] + \
-                    ['baseline']
-            results = self.results_bgg[dataset_index] + self.results_aug[dataset_index] + [self.results_rf[dataset_index]]
-        elif self.mode == 'bagging':
-            names = [f"{name} bagging" for name in self.oversampling_strategies] + ['baseline']
-            results = self.results_bgg[dataset_index] + [self.results_rf[dataset_index]]
-        elif self.mode == 'augmentation':
-            names = [f"{name} augmentation" for name in self.oversampling_strategies] + ['baseline']
-            results = self.results_aug[dataset_index] + [self.results_rf[dataset_index]]
-
-        labels = np.unique(self.datasets[dataset_index][1])
-        metrics = self.metrics
-        n_classes = len(labels)
-
-        plot_data = []
-        plot_labels = []
-        plot_methods = []
-        plot_metrics = []
-        plot_classes = []
-
-        idx_metric = 0
-        for m, metric in enumerate(metrics):
-            if metric == 'accuracy':
-                for i, method in enumerate(names):
-                    vals = np.array(results[i][-1])
-                    plot_data.extend(vals)
-                    plot_labels.extend([method] * len(vals))
-                    plot_methods.extend([method] * len(vals))
-                    plot_metrics.extend([metric] * len(vals))
-                    plot_classes.extend(['accuracy'] * len(vals))
-            else:
-                for c, cls in enumerate(labels):
-                    for i, method in enumerate(names):
-                        vals = np.array(results[i][idx_metric])
-                        plot_data.extend(vals)
-                        plot_labels.extend([method] * len(vals))
-                        plot_methods.extend([method] * len(vals))
-                        plot_metrics.extend([metric] * len(vals))
-                        plot_classes.extend([str(cls)] * len(vals))
-                    idx_metric += 1
-
-        df = pd.DataFrame({
-            'Value': plot_data,
-            'Method': plot_methods,
-            'Metric': plot_metrics,
-            'Class': plot_classes
-        })
-        palettes = [["#b39ddb"],
-                   ["#ffcc80"],
-                   ["#a5d6a7"],
-                   ["#90caf9"]]
-        plot_idx = 0
-        for m, metric in enumerate(metrics):
-            if metric == 'accuracy':
-                plt.figure(figsize=(8, 6))
-                sns.violinplot(
-                    data=df[df['Metric'] == 'accuracy'],
-                    x='Method', y='Value',
-                    palette=palettes[plot_idx//n_classes]
-                )
-                plt.title(f'Accuracy for {dataset_name}')
-                plt.xlabel(None)
-                plt.ylabel(None)
-                plt.xticks(rotation=70)
-                plt.tight_layout()
-                plt.show()
-                plot_idx += 1
-            else:
                 for cls in labels:
-                    plt.figure(figsize=(8, 6))
-                    sns.violinplot(
-                    data=df[(df['Metric'] == metric) & (df['Class'] == str(cls))],
-                    x='Method', y='Value',
-                    palette=palettes[plot_idx//n_classes]
+                    vals = df[
+                        (df['class'] == str(cls)) & 
+                        (df['type'] == type) &
+                        (df['metric'] == metric) & 
+                        (df['strategy'] == strategy) & 
+                        (df['dataset'] == dataset)]['value'].astype(float)
+                    if not vals.empty:
+                        print(f"{str(cls):>12} {vals.min():12.4f} {vals.mean():12.4f} {vals.max():12.4f} {vals.std():12.4f}")
+                    else:
+                        print(f"{str(cls):>12} {'N/A':>12} {'N/A':>12} {'N/A':>12} {'N/A':>12}")
+        
+        for metric in self.metrics:
+            vals = df[
+                (df['metric'] == metric) &
+                (df['class'] == 'all') &
+                (df['type'] == type) & 
+                (df['strategy'] == strategy) & 
+                (df['dataset'] == dataset)]['value'].astype(float)
+            print(f"\n{'':>12} {'min':>12} {'avg':>12} {'max':>12} {'std':>12}")
+            print(f"{metric+' :':>12} {vals.min():12.4f} {vals.mean():12.4f} {vals.max():12.4f} {vals.std():12.4f}")
+
+
+    def plot_metrics(self, dataset, labels):
+
+        if self.plot_type == 'box':
+            plot = sns.boxplot
+        elif self.plot_type == 'violin':
+            plot = sns.violinplot
+        else:
+            raise ValueError("plot_type must be either 'box' or 'violin'.")
+        
+        df = self.results
+
+        palettes = [
+            ["#b39ddb"], 
+            ["#a5d6a7"],
+            ["#90caf9"],
+            ["#fff59d"],
+            ["#ef9a9a"],
+            ["#ffcc80"]
+        ]
+        
+        palette_idx = 0
+
+        for metric in self.metrics:
+
+            plt.figure(figsize=(8,6))
+            plot(
+                data=df[(df['metric'] == metric) & 
+                        (df['dataset'] == dataset) &
+                        (df['class'] == 'all')],
+                x=df['type'] + '  ' + df['strategy'],
+                y='value',
+                palette=palettes[palette_idx]
+            )
+            plt.title(f'{metric.capitalize()} for {dataset}')
+            plt.xlabel(None)
+            plt.ylabel(None)
+            plt.xticks(rotation=70)
+            plt.tight_layout()
+            plt.show()
+
+            if metric in ['precision', 'recall', 'f1-score'] and self.plot_classes:
+                for cls in labels:
+                    plt.figure(figsize=(8,6))
+                    plot(
+                        data=df[(df['metric'] == metric) & 
+                                (df['dataset'] == dataset) &
+                                (df['class'] == str(cls))],
+                        x=df['type'] + '  ' + df['strategy'],
+                        y='value',
+                        palette=palettes[palette_idx]
                     )
-                    plt.title(f'{metric} (class {cls}) for {dataset_name}')
-                    plt.xticks(rotation=70)
+                    plt.title(f'{metric.capitalize()} for {dataset} - Class {cls}')
                     plt.xlabel(None)
                     plt.ylabel(None)
+                    plt.xticks(rotation=70)
                     plt.tight_layout()
                     plt.show()
-                    plot_idx += 1
+
+            palette_idx += 1
 
                 
-    def plot_data(self, X_drawn, X_resampled, y_resampled, data_name, oversampling_strategy, iteration, index, type):
-        X_drawn_tmp = np.array(X_drawn)
-        X_resampled_tmp = np.array(X_resampled)
-        y_resampled_tmp = np.array(y_resampled)
+    def plot_data(self, forest_idx, tree_idx=None):
 
-        if X_resampled_tmp.shape[1] == 1:
-            X_plot = np.hstack([X_resampled_tmp, np.zeros((X_resampled_tmp.shape[0], 1))])
-        elif X_resampled_tmp.shape[1] == 2:
-            X_plot = X_resampled_tmp
+        if forest_idx >= self.forest_counter:
+            raise ValueError(f"Forest index {forest_idx} is out of bounds. Maximum index is {self.forest_counter - 1}.")
+
+        rows = self.results[self.results['forest_index'] == forest_idx]
+        dataset = rows['dataset'].values[0]
+        dataset_idx = self.dataset_names.index(dataset)
+        labels = self.labels[dataset_idx]
+        iteration = rows['iteration'].values[0]
+        strategy = rows['strategy'].values[0]
+        type = rows['type'].values[0]
+
+        if type == 'bagging':
+            if tree_idx is None:
+                raise ValueError("For bagging tree_idx must be provided.")
+            
+            forest = self.forests_storage[forest_idx]
+            visualization_data = forest.estimators_[tree_idx].visualization_pack
+            X_drawn, X_resampled, y_resampled = visualization_data[0], visualization_data[1], visualization_data[2]
+            title = f"(TSNE) {dataset} after {strategy} bagging (iteration: {iteration}, tree: {tree_idx})"
+
+        elif type == 'augmentation':
+
+            visualization_data = next((item for item in self.augmentation_storage if item[0] == forest_idx), None)
+            _, X_drawn, X_resampled, y_resampled = visualization_data
+            title = f"(TSNE) {dataset} after {strategy} augmentation (iteration: {iteration})"
+        
+        else:
+            X_drawn, X_resampled, y_resampled = self.datasets[dataset_idx][0], self.datasets[dataset_idx][0], self.datasets[dataset_idx][2]
+            title = f"(TSNE) {dataset}"
+
+        # Prepare data for plotting
+        if X_resampled.shape[1] == 1:
+            X_plot = np.hstack([X_resampled, np.zeros((X_resampled.shape[0], 1))])
+        elif X_resampled.shape[1] == 2:
+            X_plot = X_resampled
         else:
             umap_model = UMAP(n_components=2)
-            X_plot = umap_model.fit_transform(X_resampled_tmp)
+            X_plot = umap_model.fit_transform(X_resampled)
 
-        marker = len(X_drawn_tmp)
-        classes = np.unique(y_resampled_tmp)
+        marker = len(X_drawn)
 
-        # Prepare colormaps
-        orig_palette = sns.color_palette("magma", len(classes))
-        synth_palette = sns.color_palette("viridis", len(classes))
+        orig_palette = sns.color_palette("magma", len(labels))
+        synth_palette = sns.color_palette("viridis", len(labels))
 
-        plt.figure(figsize=(7, 5))
+        plt.figure(figsize=(8, 6))
+
+        classes = np.unique(y_resampled)
 
         # Plot synthetic samples
         for idx, cls in enumerate(classes):
-            synth_mask = (y_resampled_tmp[marker:] == cls)
+            synth_mask = (y_resampled[marker:] == cls)
             if np.any(synth_mask):
                 sns.scatterplot(
                     x=X_plot[marker:, 0][synth_mask],
@@ -381,13 +399,13 @@ class Comparator:
                     color=synth_palette[idx],
                     marker="X",
                     s=100,
-                    label=f"Synthetic class {int(cls)}",
+                    label=f"synthetic class:  {int(cls)}",
                     linewidth=0.4
                 )
 
         # Plot original samples
         for idx, cls in enumerate(classes):
-            orig_mask = (y_resampled_tmp[:marker] == cls)
+            orig_mask = np.array(y_resampled[:marker] == cls)
             sns.scatterplot(
                 x=X_plot[:marker, 0][orig_mask],
                 y=X_plot[:marker, 1][orig_mask],
@@ -395,19 +413,32 @@ class Comparator:
                 marker="o",
                 linewidth=0.4,
                 s=40,
-                label=f"Original class {int(cls)}"
+                label=f"class:  {int(cls)}"
             )
 
-        plt.title(f"{data_name} data after {oversampling_strategy} {type} (and TSNE), passed to tree no. {index} in forest no. {iteration}")
+        plt.title(title)
         plt.legend()
         plt.tight_layout()
         plt.show()
 
         print('')
         for idx, cls in enumerate(classes):
-            orig_mask = (y_resampled_tmp[:marker] == cls)
-            print(f"Class {int(cls)} has {np.sum(orig_mask)} original samples and {np.sum(y_resampled_tmp[marker:] == cls)} synthetic samples after {oversampling_strategy} oversampling.")
+            orig_mask = (y_resampled[:marker] == cls)
+            if type == 'bagging':
+                print(f"Class {int(cls)} has {np.sum(orig_mask)} original samples and {np.sum(y_resampled[marker:] == cls)} synthetic samples after {strategy} bagging.")
+            elif type == 'augmentation':
+                print(f"Class {int(cls)} has {np.sum(orig_mask)} original points and {np.sum(y_resampled[marker:] == cls)} synthetic points after {strategy} augmentation.")
+            else:
+                print(f"Class {int(cls)} has {np.sum(orig_mask)} points.")
         print('')
+
+
+    def plot_dataset(self, dataset_name):
+        df = self.results
+        forest_idx = df[(df['dataset'] == dataset_name) & 
+                        (df['type'] == 'baseline') & (df['strategy'] == '-')]['forest_index'].values[0]
+        self.plot_data(forest_idx)
+
 
     def summary(self):
         print('\n', '=' * 73)
@@ -416,37 +447,27 @@ class Comparator:
 
         for i in range(len(self.datasets)):
             print('*' * 5, f' DATASET: {self.dataset_names[i]}\n')
-            class_names = np.unique(self.datasets[i][1])
+            labels = self.labels[i]
+            dataset_name = self.dataset_names[i]
+            if self.plot_datasets:
+                self.plot_dataset(dataset_name)
 
             if self.mode in ['both', 'bagging']:
-                for j, strategy in enumerate(self.oversampling_strategies):
+                for strategy in self.oversampling_strategies:
                     print('\n', '\n', f'\n+++ {strategy} - bagging')
-                    for v in range(self.visuals):
-                        self.plot_data(self.visualization_data_bgg[i][j][v][0],
-                                       self.visualization_data_bgg[i][j][v][1],
-                                       self.visualization_data_bgg[i][j][v][2],
-                                       self.visualization_data_bgg[i][j][v][4],
-                                       self.visualization_data_bgg[i][j][v][3],
-                                       self.visualization_data_bgg[i][j][v][6],
-                                       self.visualization_data_bgg[i][j][v][5],
-                                       'bagging')
-                    results = self.results_bgg[i][j]
-                    self.print_table(results, class_names, self.metrics)
+                    if self.plot_datasets:
+                        idx = self.get_forest_id('bagging', dataset_name, strategy, 1)
+                        self.plot_data(forest_idx=idx, tree_idx=1)
+                    self.print_table('bagging', dataset_name, strategy, labels)
 
             if self.mode in ['both', 'augmentation']:
-                for j, strategy in enumerate(self.oversampling_strategies):
+                for strategy in self.oversampling_strategies:
                     print(f'\n \n+++ {strategy} - augmentation +++')
-                    self.plot_data(self.visualization_data_aug[i][j][0][0],
-                                   self.visualization_data_aug[i][j][0][1],
-                                   self.visualization_data_aug[i][j][0][2],
-                                   self.visualization_data_aug[i][j][0][3],
-                                   self.visualization_data_aug[i][j][0][4],
-                                   self.visualization_data_aug[i][j][0][5],
-                                   '-', 
-                                   'augmentation')
-                    results = self.results_aug[i][j]
-                    self.print_table(results, class_names, self.metrics)
+                    if self.plot_datasets:
+                        idx = self.get_forest_id('augmentation', dataset_name, strategy, 1)
+                        self.plot_data(forest_idx=idx)
+                    self.print_table('augmentation', dataset_name, strategy, labels)
 
-            self.print_table(self.results_rf[i], class_names, self.metrics)
-
-            self.plot_violin_metrics(i)
+            print(f'\n \n+++ baseline +++')
+            self.print_table('baseline', dataset_name, '-', labels)
+            self.plot_metrics(dataset_name, labels)
