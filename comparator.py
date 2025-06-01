@@ -22,6 +22,7 @@ class Comparator:
             dataset_names=['us_crime', 'letter_img'],
             test_size=0.2,
             oversampling_strategies=['random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'], # 'random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'
+            sampling_rate = 0.5,
             metrics=['precision', 'recall', 'f1-score', 'accuracy', 'auc', 'g-mean'], # 'precision', 'recall', 'f1-score', 'accuracy', 'auc', 'g-mean'
             n_trees=100,
             iterations=100,
@@ -31,13 +32,14 @@ class Comparator:
             plot_datasets=False,
             save_forests=False, # saves only one forest per iteration
             save_all_results=False, # takes lots of resources (save only one forest data per iteration)
-            results_path='results.csv'
+            results_path=None
     ):
         self.datasets = datasets
         self.dataset_names = dataset_names
         self.fetch_datasets()
         self.test_size = test_size
         self.oversampling_strategies = oversampling_strategies
+        self.sampling_rate = sampling_rate
         self.metrics = metrics
         self.n_trees = n_trees
         self.iterations = iterations
@@ -54,8 +56,8 @@ class Comparator:
         self.plot_datasets = plot_datasets
         self.save_all_results = save_all_results
         self.save_forests = save_forests
-
         self.results_path = results_path
+
         if os.path.exists(self.results_path):
             pd.DataFrame(columns=[
                 'forest_index', 'dataset', 'type', 'strategy', 'iteration',
@@ -224,6 +226,7 @@ class Comparator:
 
                 forest = OSRandomForestClassifier(
                     oversampling_strategy=strategy,
+                    sampling_rate=self.sampling_rate,
                     n_estimators=self.n_trees)
                 
                 forest.fit(X_train, y_train)
@@ -273,13 +276,13 @@ class Comparator:
                 X_train, X_test, y_train, y_test = data
 
                 if strategy == "random":
-                    sampler = RandomOverSampler()
+                    sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
                 elif strategy == "SMOTE":
-                    sampler = SMOTE()
+                    sampler = SMOTE(sampling_strategy=self.sampling_rate)
                 elif strategy == "BorderlineSMOTE":
-                    sampler = BorderlineSMOTE()
+                    sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate)
                 elif strategy == "ADASYN":
-                    sampler = ADASYN()
+                    sampler = ADASYN(sampling_strategy=self.sampling_rate)
                 else:
                     raise ValueError(f"Oversampling strategy {strategy} is not supported.")
                 
@@ -405,6 +408,12 @@ class Comparator:
 
             if metric in ['precision', 'recall', 'f1-score'] and self.plot_classes:
                 for cls in labels:
+                    if str(cls) == "-1":
+                        cls_name = "majority"
+                    elif str(cls) == "1":
+                        cls_name = "minority"
+                    else:
+                        cls_name = str(cls)
                     plt.figure(figsize=(8,6))
                     plot(
                         data=df[(df['metric'] == metric) & 
@@ -414,7 +423,7 @@ class Comparator:
                         y='value',
                         palette=palettes[palette_idx]
                     )
-                    plt.title(f'{metric.capitalize()} for {dataset} - Class {cls}')
+                    plt.title(f'{metric.capitalize()} for {dataset} - {cls_name} Class ')
                     plt.xlabel(None)
                     plt.ylabel(None)
                     plt.xticks(rotation=70)
@@ -469,7 +478,8 @@ class Comparator:
             X_plot = X_resampled
         else:
             umap_model = UMAP(n_components=2, random_state=42)
-            X_plot = umap_model.fit_transform(X_resampled)
+            umap_model.fit(X_drawn)
+            X_plot = umap_model.transform(X_resampled)
             # X_plot = X_resampled[:, :2]
 
         marker = len(X_drawn)
@@ -531,35 +541,38 @@ class Comparator:
         self.plot_data(forest_idx)
 
 
-    def summary(self):
+    def summary(self, plot_data=False, plot_metrix=True):
         print('\n', '=' * 73)
         print('=========================         SUMMARY         =======================')
         print('=' * 73, '\n')
 
         for i in range(len(self.datasets)):
             print('*' * 5, f' DATASET: {self.dataset_names[i]}\n')
+            print('*' * 5, f' oversampling rate: {self.sampling_rate}\n')
             labels = self.labels[i]
             dataset_name = self.dataset_names[i]
-            if self.plot_datasets:
-                self.plot_dataset(dataset_name)
+            if plot_data:
+                if self.plot_datasets:
+                    self.plot_dataset(dataset_name)
 
-            if self.mode in ['both', 'bagging']:
-                for strategy in self.oversampling_strategies:
-                    print('\n', '\n', f'\n+++ {strategy} - bagging')
-                    if self.plot_datasets:
-                        idx = self.get_forest_id('bagging', dataset_name, strategy, 0)
-                        self.plot_data(forest_idx=idx, tree_idx=0)
-                    self.print_table('bagging', dataset_name, strategy, labels)
+                if self.mode in ['both', 'bagging']:
+                    for strategy in self.oversampling_strategies:
+                        print('\n', '\n', f'\n+++ {strategy} - bagging')
+                        if self.plot_datasets:
+                            idx = self.get_forest_id('bagging', dataset_name, strategy, 0)
+                            self.plot_data(forest_idx=idx, tree_idx=0)
+                        self.print_table('bagging', dataset_name, strategy, labels)
 
-            if self.mode in ['both', 'augmentation']:
-                for strategy in self.oversampling_strategies:
-                    print(f'\n \n+++ {strategy} - augmentation +++')
-                    if self.plot_datasets:
-                        idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
-                        print(f'Forest index: {idx}')
-                        self.plot_data(forest_idx=idx)
-                    self.print_table('augmentation', dataset_name, strategy, labels)
+                if self.mode in ['both', 'augmentation']:
+                    for strategy in self.oversampling_strategies:
+                        print(f'\n \n+++ {strategy} - augmentation +++')
+                        if self.plot_datasets:
+                            idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
+                            print(f'Forest index: {idx}')
+                            self.plot_data(forest_idx=idx)
+                        self.print_table('augmentation', dataset_name, strategy, labels)
 
-            print(f'\n \n+++ baseline +++')
-            self.print_table('baseline', dataset_name, '-', labels)
-            self.plot_metrics(dataset_name, labels)
+                print(f'\n \n+++ baseline +++')
+                self.print_table('baseline', dataset_name, '-', labels)
+            if plot_metrix:
+                self.plot_metrics(dataset_name, labels)

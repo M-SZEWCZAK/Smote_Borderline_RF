@@ -29,6 +29,7 @@ class OSRandomForestClassifier(ForestClassifier):
     def __init__(
         self,
         oversampling_strategy="random",
+        sampling_rate=0.5,
         n_estimators=100,
         *,
         criterion="gini",
@@ -52,7 +53,8 @@ class OSRandomForestClassifier(ForestClassifier):
     ):
         super().__init__(
             estimator=OSDecisionTreeClassifier(
-                oversampling_strategy=oversampling_strategy
+                oversampling_strategy=oversampling_strategy,
+                sampling_rate=sampling_rate
             ),
             n_estimators=n_estimators,
             estimator_params=(
@@ -78,6 +80,7 @@ class OSRandomForestClassifier(ForestClassifier):
             max_samples=max_samples,
         )
 
+        self.sampling_rate = sampling_rate
         self.criterion = criterion
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
@@ -95,6 +98,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
         self,
         *,
         oversampling_strategy="random",
+        sampling_rate=0.5,
         criterion="gini",
         splitter="best",
         max_depth=None,
@@ -125,6 +129,7 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
             monotonic_cst=monotonic_cst,
         )
         self.oversampling_strategy = oversampling_strategy
+        self.sampling_rate = sampling_rate
 
     def _fit(
         self,
@@ -135,13 +140,13 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
         missing_values_in_feature_mask=None,
     ):
         if self.oversampling_strategy == "random":
-            sampler = RandomOverSampler()
+            sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
         elif self.oversampling_strategy == "SMOTE":
-            sampler = SMOTE()
+            sampler = SMOTE(sampling_strategy=self.sampling_rate)
         elif  self.oversampling_strategy == "BorderlineSMOTE":
-            sampler = BorderlineSMOTE()
+            sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate)
         elif self.oversampling_strategy == "ADASYN":
-            sampler = ADASYN()
+            sampler = ADASYN(sampling_strategy=self.sampling_rate)
         else:
             raise ValueError(
                 f"Oversampling strategy {self.oversampling_strategy} is not supported."
