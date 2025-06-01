@@ -18,14 +18,13 @@ warnings.filterwarnings('ignore')
 class Comparator:
     def __init__(
             self,
-            datasets=[[fetch_datasets()['us_crime'].data, fetch_datasets()['us_crime'].target],
-                      [fetch_datasets()['letter_img'].data, fetch_datasets()['letter_img'].target]],
+            datasets=None,
+            dataset_names=['us_crime', 'letter_img'],
             test_size=0.2,
             oversampling_strategies=['random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'], # 'random', 'SMOTE', 'BorderlineSMOTE', 'ADASYN'
             metrics=['precision', 'recall', 'f1-score', 'accuracy', 'auc', 'g-mean'], # 'precision', 'recall', 'f1-score', 'accuracy', 'auc', 'g-mean'
             n_trees=100,
             iterations=100,
-            dataset_names=['us_crime', 'letter_img'],
             mode='both', # 'both', 'bagging', 'augmentation'
             seprate_plots_for_classes=False,
             plot_type = 'box', # 'box', 'violin'
@@ -35,12 +34,13 @@ class Comparator:
             results_path='results.csv'
     ):
         self.datasets = datasets
+        self.dataset_names = dataset_names
+        self.fetch_datasets()
         self.test_size = test_size
         self.oversampling_strategies = oversampling_strategies
         self.metrics = metrics
         self.n_trees = n_trees
         self.iterations = iterations
-        self.dataset_names = dataset_names
         self.mode = mode
         self.prepare_data()
         self.results_storage = []
@@ -61,6 +61,15 @@ class Comparator:
                 'forest_index', 'dataset', 'type', 'strategy', 'iteration',
                 'class', 'metric', 'value'
             ]).to_csv(self.results_path, index=False)
+
+    def fetch_datasets(self):
+        if self.datasets is not None:
+            return  # Datasets are already provided
+
+        self.datasets = []
+        for dataset_name in self.dataset_names:
+            dataset = fetch_datasets()[dataset_name]
+            self.datasets.append([dataset.data, dataset.target])
 
 
     def prepare_data(self):
@@ -461,6 +470,7 @@ class Comparator:
         else:
             umap_model = UMAP(n_components=2, random_state=42)
             X_plot = umap_model.fit_transform(X_resampled)
+            # X_plot = X_resampled[:, :2]
 
         marker = len(X_drawn)
 
@@ -546,6 +556,7 @@ class Comparator:
                     print(f'\n \n+++ {strategy} - augmentation +++')
                     if self.plot_datasets:
                         idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
+                        print(f'Forest index: {idx}')
                         self.plot_data(forest_idx=idx)
                     self.print_table('augmentation', dataset_name, strategy, labels)
 
