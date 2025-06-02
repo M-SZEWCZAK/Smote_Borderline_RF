@@ -15,6 +15,146 @@ import os
 warnings.filterwarnings('ignore')
 
 
+
+class SRComparator():
+
+    def __init__(
+            self,
+            dataset_name="ecoli",
+            oversampling_strategy='BorderlineSMOTE',
+            n_trees=100,
+            iterations=100,
+            n_rates=10,
+            ):
+        self.dataset_name=dataset_name
+        self.oversampling_strategy=oversampling_strategy
+        self.n_trees=n_trees
+        self.iterations=iterations
+        self.metrics=['precision', 'recall']
+        self.MIN_RATE=0.5
+        self.MAX_RATE=0.7
+        self.n_rates=n_rates
+        self.generate_comparators()
+
+    def generate_comparators(self):
+        self.comparators = []
+        self.sampling_rates = np.linspace(self.MIN_RATE, self.MAX_RATE, self.n_rates)
+        self.results_folder = f"../sr-comparison-results/{self.dataset_name}"
+        os.makedirs(self.results_folder, exist_ok=True)
+        for rate in self.sampling_rates:
+            comparator = Comparator(
+                dataset_names=[self.dataset_name],
+                oversampling_strategies=[self.oversampling_strategy],
+                metrics=self.metrics,
+                n_trees=self.n_trees,
+                iterations=self.iterations,
+                sampling_rate=rate,
+                results_path=f"../sr-comparison-results/{self.dataset_name}/sr-{round(rate, 2)}.csv",
+            )
+            self.comparators.append(comparator)
+
+    def compute(self):
+        for comparator in self.comparators:
+            comparator.compute()
+
+    def plot_rates(self):
+        
+        plot = sns.boxplot
+        df = self.load_results()
+        labels = [str(c) for c in df[df['class'] != 'all']['class'].unique()]
+
+        palettes = [
+            ["#b39ddb"], 
+            ["#a5d6a7"],
+            ["#90caf9"],
+            ["#fff59d"],
+            ["#ffcc80"],
+            ["#ffab91"],
+            ["#b39ddb"], 
+            ["#a5d6a7"],
+            ["#90caf9"],
+            ["#fff59d"],
+            ["#ffcc80"],
+            ["#ffab91"]
+        ]
+        
+        palette_idx = 0
+
+        for metric in self.metrics:
+
+            plt.figure(figsize=(8,6))
+            plot(
+                data=df[(df['metric'] == metric) & 
+                        (df['class'] == 'all')],
+                x='sampling_rate',
+                y='value',
+                palette=palettes[palette_idx],
+                showmeans=True,
+                meanprops={"marker": "o",
+                            "markerfacecolor": (1, 0, 0, 0),
+                            "markeredgecolor": "red",
+                            "markersize": 7}
+            )
+            plt.title(f'{metric.capitalize()} for different sampling rates')
+            plt.xlabel(None)
+            plt.ylabel(None)
+            # plt.xticks(rotation=70)
+            plt.tight_layout()
+            plt.show()
+
+            if metric in ['precision', 'recall', 'f1-score']:
+                for cls in labels:
+                    if str(cls) == "-1":
+                        cls_name = "majority"
+                    elif str(cls) == "1":
+                        cls_name = "minority"
+                    else:
+                        cls_name = str(cls)
+                    plt.figure(figsize=(8,6))
+                    plot(
+                        data=df[(df['metric'] == metric) & 
+                                (df['class'] == str(cls))],
+                        x='sampling_rate',
+                        y='value',
+                        palette=palettes[palette_idx],
+                        showmeans=True,
+                        meanprops={"marker": "o",
+                                "markerfacecolor": (1, 0, 0, 0),
+                                "markeredgecolor": "red",
+                                "markersize": 7}
+                    )
+                    plt.title(f'{metric.capitalize()} for different sampling rates - {cls_name} Class ')
+                    plt.xlabel(None)
+                    plt.ylabel(None)
+                    # plt.xticks(rotation=70)
+                    plt.tight_layout()
+                    plt.show()
+
+            palette_idx += 1
+            
+    def load_results(self, filters=None):
+        big_df = pd.DataFrame(columns=['sampling_rate', 'forest_index', 'dataset', 'type', 'strategy', 'iteration', 'class', 'metric', 'value'])
+        for rate in self.sampling_rates:
+            results_path = os.path.join(self.results_folder, f"sr-{round(rate, 2)}.csv")
+            chunks = pd.read_csv(results_path, chunksize=1000)
+            filtered_chunks = []
+            for chunk in chunks:
+                if filters:
+                    for key, value in filters.items():
+                        chunk = chunk[chunk[key] == value]
+                filtered_chunks.append(chunk)
+            if filtered_chunks:
+                df = pd.concat(filtered_chunks, ignore_index=True)
+            else:
+                df = pd.DataFrame(columns=[
+                    'forest_index', 'dataset', 'type', 'strategy', 'iteration',
+                    'class', 'metric', 'value'
+                ])
+            df['sampling_rate'] = round(rate, 2)
+            big_df = pd.concat([big_df, df], ignore_index=True)
+
+        return big_df
+
 class Comparator:
     def __init__(
             self,
