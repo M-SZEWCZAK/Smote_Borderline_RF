@@ -27,9 +27,9 @@ class Comparator:
             n_trees=100,
             iterations=100,
             mode='both', # 'both', 'bagging', 'augmentation'
-            seprate_plots_for_classes=False,
+            separate_plots_for_classes=True,
             plot_type = 'box', # 'box', 'violin'
-            plot_datasets=False,
+            plot_datasets=True,
             save_forests=False, # saves only one forest per iteration
             save_all_results=False, # takes lots of resources (save only one forest data per iteration)
             results_path=None
@@ -51,7 +51,7 @@ class Comparator:
         self.baseline_storage = []
         self.forests_storage = []
         self.forest_counter = 0
-        self.plot_classes = seprate_plots_for_classes
+        self.plot_classes = separate_plots_for_classes
         self.plot_type = plot_type
         self.plot_datasets = plot_datasets
         self.save_all_results = save_all_results
