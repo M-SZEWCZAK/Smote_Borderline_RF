@@ -50,6 +50,7 @@ class SRComparator():
                 iterations=self.iterations,
                 sampling_rate=rate,
                 results_path=f"../sr-comparison-results/{self.dataset_name}/sr-{round(rate, 2)}.csv",
+                mode='bagging',
             )
             self.comparators.append(comparator)
 
@@ -60,7 +61,7 @@ class SRComparator():
     def plot_rates(self):
         
         plot = sns.boxplot
-        df = self.load_results()
+        df = self.load_results({'type': 'bagging'})
         labels = [str(c) for c in df[df['class'] != 'all']['class'].unique()]
 
         palettes = [
@@ -279,7 +280,7 @@ class Comparator:
             print(f'\n \n + DATASET: {dataset_name}')
             if self.mode in ['both', 'bagging']:
                 self.compute_bagging(data, dataset_name, labels)
-            if self.mode in ['both', 'augmentation']:
+            elif self.mode in ['both', 'augmentation']:
                 self.compute_augmentation(data, dataset_name, labels)
             else:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
