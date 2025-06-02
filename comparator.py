@@ -80,7 +80,7 @@ class Comparator:
             dataset = self.datasets[i]
             X, y = dataset[0], dataset[1]
             labels = np.unique(y)
-            self.datasets[i] = train_test_split(X, y, test_size=self.test_size, stratify=y)
+            # self.datasets[i] = train_test_split(X, y, test_size=self.test_size, stratify=y)
             self.labels.append(labels)
 
 
@@ -222,7 +222,8 @@ class Comparator:
 
                 self._print_progress_bar(j + 1, prefix=f'{strategy} - bagging')
                 
-                X_train, X_test, y_train, y_test = data
+                X_train, X_test, y_train, y_test = train_test_split(
+                    data[0], data[1], stratify=data[1], test_size=self.test_size)
 
                 forest = OSRandomForestClassifier(
                     oversampling_strategy=strategy,
@@ -273,7 +274,8 @@ class Comparator:
 
                 self._print_progress_bar(j + 1, prefix=f'{strategy} - augmentation')
 
-                X_train, X_test, y_train, y_test = data
+                X_train, X_test, y_train, y_test = train_test_split(
+                    data[0], data[1], stratify=data[1], test_size=self.test_size)
 
                 if strategy == "random":
                     sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
@@ -315,7 +317,8 @@ class Comparator:
 
             self._print_progress_bar(j + 1, prefix='baseline')
 
-            X_train, X_test, y_train, y_test = data
+            X_train, X_test, y_train, y_test = train_test_split(
+                data[0], data[1], stratify=data[1], test_size=self.test_size)
             forest = RandomForestClassifier(
                 n_estimators=self.n_trees
             )
