@@ -546,7 +546,7 @@ class Comparator:
         print('=========================         SUMMARY         =======================')
         print('=' * 73, '\n')
 
-        for i in range(len(self.datasets)):
+        for i in range(len(self.dataset_names)):
             print('*' * 5, f' DATASET: {self.dataset_names[i]}\n')
             print('*' * 5, f' oversampling rate: {self.sampling_rate}\n')
             labels = self.labels[i]
