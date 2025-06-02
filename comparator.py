@@ -400,7 +400,12 @@ class Comparator:
                         (df['class'] == 'all')],
                 x=df['type'] + '  ' + df['strategy'],
                 y='value',
-                palette=palettes[palette_idx]
+                palette=palettes[palette_idx],
+                showmeans=True,
+                meanprops={"marker": "o",
+                            "markerfacecolor": (1, 0, 0, 0),
+                            "markeredgecolor": "red",
+                            "markersize": 7}
             )
             plt.title(f'{metric.capitalize()} for {dataset}')
             plt.xlabel(None)
@@ -424,7 +429,12 @@ class Comparator:
                                 (df['class'] == str(cls))],
                         x=df['type'] + '  ' + df['strategy'],
                         y='value',
-                        palette=palettes[palette_idx]
+                        palette=palettes[palette_idx],
+                        showmeans=True,
+                        meanprops={"marker": "o",
+                                   "markerfacecolor": (1, 0, 0, 0),
+                                   "markeredgecolor": "red",
+                                   "markersize": 7}
                     )
                     plt.title(f'{metric.capitalize()} for {dataset} - {cls_name} Class ')
                     plt.xlabel(None)
