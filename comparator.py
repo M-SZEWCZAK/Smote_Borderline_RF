@@ -39,7 +39,7 @@ class SRComparator():
     def generate_comparators(self):
         self.comparators = []
         self.sampling_rates = np.linspace(self.MIN_RATE, self.MAX_RATE, self.n_rates)
-        self.results_folder = f"../sr-comparison-results/{self.dataset_name}"
+        self.results_folder = f"../sampling_rate_comparison_results/{self.dataset_name}"
         os.makedirs(self.results_folder, exist_ok=True)
         for rate in self.sampling_rates:
             comparator = Comparator(
@@ -49,14 +49,14 @@ class SRComparator():
                 n_trees=self.n_trees,
                 iterations=self.iterations,
                 sampling_rate=rate,
-                results_path=f"../sr-comparison-results/{self.dataset_name}/sr-{round(rate, 2)}.csv",
+                results_path=f"../sampling_rate_comparison_results/{self.dataset_name}/sr-{round(rate, 2)}.csv",
                 mode='bagging',
             )
             self.comparators.append(comparator)
 
     def compute(self):
         for comparator in self.comparators:
-            comparator.compute()
+            comparator.compute(print_var=False, baseline=False)
 
     def plot_rates(self):
         
@@ -168,9 +168,6 @@ class Comparator:
             n_trees=100,
             iterations=100,
             mode='both', # 'both', 'bagging', 'augmentation'
-            separate_plots_for_classes=True,
-            plot_type = 'box', # 'box', 'violin'
-            plot_datasets=True,
             save_forests=False, # saves only one forest per iteration
             save_all_results=False, # takes lots of resources (save only one forest data per iteration)
             results_path=None
@@ -192,9 +189,6 @@ class Comparator:
         self.baseline_storage = []
         self.forests_storage = []
         self.forest_counter = 0
-        self.plot_classes = separate_plots_for_classes
-        self.plot_type = plot_type
-        self.plot_datasets = plot_datasets
         self.save_all_results = save_all_results
         self.save_forests = save_forests
         self.results_path = results_path
@@ -261,35 +255,42 @@ class Comparator:
         return df
 
 
-    def compute(self):
-        print('=========================================================================')
-        print('=========================     START COMPUTING     =======================')
-        print('=========================================================================\n')
+    def compute(self, print_var = True, baseline=True):
+        if print_var:
+            print('=========================================================================')
+            print('=========================     START COMPUTING     =======================')
+            print('=========================================================================\n')
 
-        print(f'Datasets: {self.dataset_names}')
-        print(f'Mode: {self.mode}')
-        print(f'Oversampling strategies: {self.oversampling_strategies}')
-        print(f'Metrics: {self.metrics}')
-        print(f'Iterations: {self.iterations}')
-        print(f'Number of trees: {self.n_trees}')
+            print(f'Datasets: {self.dataset_names}')
+            print(f'Mode: {self.mode}')
+            print(f'Oversampling strategies: {self.oversampling_strategies}')
+            print(f'Metrics: {self.metrics}')
+            print(f'Iterations: {self.iterations}')
+            print(f'Number of trees: {self.n_trees}')
 
         for i in range(len(self.datasets)):
             dataset_name = self.dataset_names[i]
             labels = self.labels[i]
             data = self.datasets[i]
             print(f'\n \n + DATASET: {dataset_name}')
-            if self.mode in ['both', 'bagging']:
+            if self.mode == 'both':
                 self.compute_bagging(data, dataset_name, labels)
-            elif self.mode in ['both', 'augmentation']:
+                self.compute_augmentation(data, dataset_name, labels)
+            elif self.mode == 'bagging':
+                self.compute_bagging(data, dataset_name, labels)
+            elif self.mode == 'augmentation':
                 self.compute_augmentation(data, dataset_name, labels)
             else:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
-            self.compute_baseline(data, dataset_name, labels)
+
+            if baseline:
+                self.compute_baseline(data, dataset_name, labels)
             
         self.save_results()
-        print('\n=========================================================================')
-        print('==================     COMPUTING ENDED SUCCESSFULLY      ================')
-        print('=========================================================================\n')
+        if print_var:
+            print('\n=========================================================================')
+            print('==================     COMPUTING ENDED SUCCESSFULLY      ================')
+            print('=========================================================================\n')
 
 
     def _print_progress_bar(self, iteration, prefix='', length=30):
@@ -510,11 +511,11 @@ class Comparator:
             print(f"{metric+' :':>12} {vals.min():12.4f} {vals.mean():12.4f} {vals.max():12.4f} {vals.std():12.4f}")
 
 
-    def plot_metrics(self, dataset, labels):
+    def plot_metrics(self, dataset, labels, plot_classes, plot_type):
 
-        if self.plot_type == 'box':
+        if plot_type == 'box':
             plot = sns.boxplot
-        elif self.plot_type == 'violin':
+        elif plot_type == 'violin':
             plot = sns.violinplot
         else:
             raise ValueError("plot_type must be either 'box' or 'violin'.")
@@ -555,7 +556,7 @@ class Comparator:
             plt.tight_layout()
             plt.show()
 
-            if metric in ['precision', 'recall', 'f1-score'] and self.plot_classes:
+            if metric in ['precision', 'recall', 'f1-score'] and plot_classes:
                 for cls in labels:
                     if str(cls) == "-1":
                         cls_name = "majority"
@@ -689,13 +690,13 @@ class Comparator:
         print('')
 
 
-    def plot_dataset(self, dataset_name):
+    def plot_set(self, dataset_name):
         df = self.load_results({'type': 'baseline', 'dataset': dataset_name, 'strategy': '-'})
         forest_idx = df['forest_index'].values[0]
         self.plot_data(forest_idx)
 
 
-    def summary(self, plot_data=False, plot_metrix=True):
+    def summary(self, plot_data=False, plot_metrix=True, separate_plots_for_classes=True, plot_type='box'):
         print('\n', '=' * 73)
         print('=========================         SUMMARY         =======================')
         print('=' * 73, '\n')
@@ -705,28 +706,45 @@ class Comparator:
             print('*' * 5, f' oversampling rate: {self.sampling_rate}\n')
             labels = self.labels[i]
             dataset_name = self.dataset_names[i]
+
             if plot_data:
-                if self.plot_datasets:
-                    self.plot_dataset(dataset_name)
+                self.plot_set(dataset_name)
 
-                if self.mode in ['both', 'bagging']:
-                    for strategy in self.oversampling_strategies:
-                        print('\n', '\n', f'\n+++ {strategy} - bagging')
-                        if self.plot_datasets:
-                            idx = self.get_forest_id('bagging', dataset_name, strategy, 0)
-                            self.plot_data(forest_idx=idx, tree_idx=0)
-                        self.print_table('bagging', dataset_name, strategy, labels)
+            if self.mode == 'both':
+                for strategy in self.oversampling_strategies:
+                    print('\n', '\n', f'\n+++ {strategy} - bagging')
+                    if plot_data:
+                        idx = self.get_forest_id('bagging', dataset_name, strategy, 0)
+                        self.plot_data(forest_idx=idx, tree_idx=0)
+                    self.print_table('bagging', dataset_name, strategy, labels)
 
-                if self.mode in ['both', 'augmentation']:
-                    for strategy in self.oversampling_strategies:
-                        print(f'\n \n+++ {strategy} - augmentation +++')
-                        if self.plot_datasets:
-                            idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
-                            print(f'Forest index: {idx}')
-                            self.plot_data(forest_idx=idx)
-                        self.print_table('augmentation', dataset_name, strategy, labels)
+                for strategy in self.oversampling_strategies:
+                    print(f'\n \n+++ {strategy} - augmentation +++')
+                    if plot_data:
+                        idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
+                        print(f'Forest index: {idx}')
+                        self.plot_data(forest_idx=idx)
+                    self.print_table('augmentation', dataset_name, strategy, labels)
 
-                print(f'\n \n+++ baseline +++')
-                self.print_table('baseline', dataset_name, '-', labels)
+            elif self.mode == 'bagging':
+                for strategy in self.oversampling_strategies:
+                    print('\n', '\n', f'\n+++ {strategy} - bagging')
+                    if plot_data:
+                        idx = self.get_forest_id('bagging', dataset_name, strategy, 0)
+                        self.plot_data(forest_idx=idx, tree_idx=0)
+                    self.print_table('bagging', dataset_name, strategy, labels)
+
+            elif self.mode == 'augmentation':
+                for strategy in self.oversampling_strategies:
+                    print(f'\n \n+++ {strategy} - augmentation +++')
+                    if plot_data:
+                        idx = self.get_forest_id('augmentation', dataset_name, strategy, 0)
+                        print(f'Forest index: {idx}')
+                        self.plot_data(forest_idx=idx)
+                    self.print_table('augmentation', dataset_name, strategy, labels)
+
+            print(f'\n \n+++ baseline +++')
+            self.print_table('baseline', dataset_name, '-', labels)
+
             if plot_metrix:
-                self.plot_metrics(dataset_name, labels)
+                self.plot_metrics(dataset_name, labels, plot_classes=separate_plots_for_classes, plot_type=plot_type)
