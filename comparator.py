@@ -9,6 +9,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
+from collections import Counter
 from umap import UMAP
 import warnings
 import os
@@ -367,10 +368,22 @@ class Comparator:
                 X_train, X_test, y_train, y_test = train_test_split(
                     data[0], data[1], stratify=data[1], test_size=self.test_size)
 
+                counter = Counter(y_train)
+                minority_class = min(counter, key=counter.get)
+                minority_count = counter[minority_class]
+                skip_oversampling = False
+                
+                if minority_count == 1 and strategy != 'random':
+                    print(f"WARNING: Oversampling is skipped for forest no.{j} due to a few minority samples.")
+                    skip_oversampling = True
+                if minority_count == 0 or len(counter) == 1:
+                    skip_oversampling = True
+
                 forest = OSRandomForestClassifier(
                     oversampling_strategy=strategy,
                     sampling_rate=self.sampling_rate,
-                    n_estimators=self.n_trees)
+                    n_estimators=self.n_trees,
+                    skip_oversampling=skip_oversampling)
                 
                 forest.fit(X_train, y_train)
 
@@ -418,23 +431,37 @@ class Comparator:
 
                 X_train, X_test, y_train, y_test = train_test_split(
                     data[0], data[1], stratify=data[1], test_size=self.test_size)
+                
+                counter = Counter(y_train)
+                minority_class = min(counter, key=counter.get)
+                minority_count = counter[minority_class]
+                k_neighbors = min(5, minority_count - 1) if minority_count > 1 else 1
+                skip_oversampling = minority_count <= 1 or len(counter) == 1
 
-                if strategy == "random":
-                    sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
-                elif strategy == "SMOTE":
-                    sampler = SMOTE(sampling_strategy=self.sampling_rate)
-                elif strategy == "BorderlineSMOTE":
-                    sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate)
-                elif strategy == "ADASYN":
-                    sampler = ADASYN(sampling_strategy=self.sampling_rate)
+                if not skip_oversampling:
+                    if strategy == "random":
+                        sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
+                    elif strategy == "SMOTE":
+                        sampler = SMOTE(sampling_strategy=self.sampling_rate, k_neighbors=k_neighbors)
+                    elif strategy == "BorderlineSMOTE":
+                        sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate, k_neighbors=k_neighbors)
+                    elif strategy == "ADASYN":
+                        sampler = ADASYN(sampling_strategy=self.sampling_rate, n_neighbors = k_neighbors)
+                    else:
+                        raise ValueError(f"Oversampling strategy {strategy} is not supported.")
                 else:
-                    raise ValueError(f"Oversampling strategy {strategy} is not supported.")
+                    print(f"WARNING: Oversampling is skipped for forest {j} due to a few minority samples.")
+                    sampler = None
                 
                 forest = RandomForestClassifier(
                     n_estimators=self.n_trees
                 )
+                
+                if sampler is None:
+                    X_resampled, y_resampled = X_train, y_train
+                else:
+                    X_resampled, y_resampled = sampler.fit_resample(X_train, y_train)
 
-                X_resampled, y_resampled = sampler.fit_resample(X_train, y_train)
                 forest.fit(X_resampled, y_resampled)
 
                 y_pred = forest.predict(X_test)
