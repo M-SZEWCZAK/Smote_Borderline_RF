@@ -417,9 +417,10 @@ class Comparator:
                 self.forest_counter += 1
                     
 
-    def compute_augmentation(self, data, dataset_name, labels):
+    def compute_augmentation(self, data, dataset_name, labels, print_var=True):
 
-        print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
+        if print_var:
+            print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
         
         for strategy in self.oversampling_strategies:
             for j in range(self.iterations):
@@ -461,9 +462,10 @@ class Comparator:
                 self.forest_counter += 1
     
 
-    def compute_baseline(self, data, dataset_name, labels):
+    def compute_baseline(self, data, dataset_name, labels, print_var=True):
 
-        print('\n-=-=-=-=-=-=   BASELINE   =-=-=-=-=-')
+        if print_var:
+            print('\n-=-=-=-=-=-=   BASELINE   =-=-=-=-=-')
 
         for j in range(self.iterations):
 
