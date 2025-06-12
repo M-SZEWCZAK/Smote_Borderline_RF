@@ -80,7 +80,7 @@ class Comparator:
             dataset = self.datasets[i]
             X, y = dataset[0], dataset[1]
             labels = np.unique(y)
-            self.datasets[i] = train_test_split(X, y, test_size=self.test_size, stratify=y)
+            # self.datasets[i] = train_test_split(X, y, test_size=self.test_size, stratify=y)
             self.labels.append(labels)
 
 
@@ -222,7 +222,8 @@ class Comparator:
 
                 self._print_progress_bar(j + 1, prefix=f'{strategy} - bagging')
                 
-                X_train, X_test, y_train, y_test = data
+                X_train, X_test, y_train, y_test = train_test_split(
+                    data[0], data[1], stratify=data[1], test_size=self.test_size)
 
                 forest = OSRandomForestClassifier(
                     oversampling_strategy=strategy,
@@ -273,7 +274,8 @@ class Comparator:
 
                 self._print_progress_bar(j + 1, prefix=f'{strategy} - augmentation')
 
-                X_train, X_test, y_train, y_test = data
+                X_train, X_test, y_train, y_test = train_test_split(
+                    data[0], data[1], stratify=data[1], test_size=self.test_size)
 
                 if strategy == "random":
                     sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
@@ -315,7 +317,8 @@ class Comparator:
 
             self._print_progress_bar(j + 1, prefix='baseline')
 
-            X_train, X_test, y_train, y_test = data
+            X_train, X_test, y_train, y_test = train_test_split(
+                data[0], data[1], stratify=data[1], test_size=self.test_size)
             forest = RandomForestClassifier(
                 n_estimators=self.n_trees
             )
@@ -397,7 +400,12 @@ class Comparator:
                         (df['class'] == 'all')],
                 x=df['type'] + '  ' + df['strategy'],
                 y='value',
-                palette=palettes[palette_idx]
+                palette=palettes[palette_idx],
+                showmeans=True,
+                meanprops={"marker": "o",
+                            "markerfacecolor": (1, 0, 0, 0),
+                            "markeredgecolor": "red",
+                            "markersize": 7}
             )
             plt.title(f'{metric.capitalize()} for {dataset}')
             plt.xlabel(None)
@@ -421,7 +429,12 @@ class Comparator:
                                 (df['class'] == str(cls))],
                         x=df['type'] + '  ' + df['strategy'],
                         y='value',
-                        palette=palettes[palette_idx]
+                        palette=palettes[palette_idx],
+                        showmeans=True,
+                        meanprops={"marker": "o",
+                                   "markerfacecolor": (1, 0, 0, 0),
+                                   "markeredgecolor": "red",
+                                   "markersize": 7}
                     )
                     plt.title(f'{metric.capitalize()} for {dataset} - {cls_name} Class ')
                     plt.xlabel(None)
@@ -546,7 +559,7 @@ class Comparator:
         print('=========================         SUMMARY         =======================')
         print('=' * 73, '\n')
 
-        for i in range(len(self.datasets)):
+        for i in range(len(self.dataset_names)):
             print('*' * 5, f' DATASET: {self.dataset_names[i]}\n')
             print('*' * 5, f' oversampling rate: {self.sampling_rate}\n')
             labels = self.labels[i]
