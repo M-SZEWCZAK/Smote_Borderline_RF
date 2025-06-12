@@ -31,8 +31,8 @@ class SRComparator():
         self.n_trees=n_trees
         self.iterations=iterations
         self.metrics=['precision', 'recall']
-        self.MIN_RATE=0.5
-        self.MAX_RATE=0.7
+        self.MIN_RATE=0.3
+        self.MAX_RATE=1
         self.n_rates=n_rates
         self.generate_comparators()
 
@@ -55,8 +55,16 @@ class SRComparator():
             self.comparators.append(comparator)
 
     def compute(self):
+        print('=========================================================================')
+        print('=========================     START COMPUTING     =======================')
+        print('=========================================================================\n')
+        print(f'Dataset: {self.dataset_name}')
+        print(f"Computing {len(self.comparators)} comparators with sampling rates from {self.MIN_RATE} to {self.MAX_RATE}.")
+        print('=========================================================================\n')
         for comparator in self.comparators:
             comparator.compute(print_var=False, baseline=False)
+        print('\n=========================================================================')
+        print('==================     COMPUTING ENDED SUCCESSFULLY      ================')
 
     def plot_rates(self):
         
@@ -272,19 +280,20 @@ class Comparator:
             dataset_name = self.dataset_names[i]
             labels = self.labels[i]
             data = self.datasets[i]
-            print(f'\n \n + DATASET: {dataset_name}')
+            if print_var:
+                print(f'\n \n + DATASET: {dataset_name}')
             if self.mode == 'both':
-                self.compute_bagging(data, dataset_name, labels)
-                self.compute_augmentation(data, dataset_name, labels)
+                self.compute_bagging(data, dataset_name, labels, print_var=print_var)
+                self.compute_augmentation(data, dataset_name, labels, print_var=print_var)
             elif self.mode == 'bagging':
-                self.compute_bagging(data, dataset_name, labels)
+                self.compute_bagging(data, dataset_name, labels, print_var=print_var)
             elif self.mode == 'augmentation':
-                self.compute_augmentation(data, dataset_name, labels)
+                self.compute_augmentation(data, dataset_name, labels, print_var=print_var)
             else:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
 
             if baseline:
-                self.compute_baseline(data, dataset_name, labels)
+                self.compute_baseline(data, dataset_name, labels, print_var=print_var)
             
         self.save_results()
         if print_var:
@@ -355,9 +364,10 @@ class Comparator:
         ]).to_csv(self.results_path, index=False)
 
 
-    def compute_bagging(self, data, dataset_name, labels):
+    def compute_bagging(self, data, dataset_name, labels, print_var=True):
 
-        print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
+        if print_var:
+            print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
 
         for strategy in self.oversampling_strategies:
             for j in range(self.iterations):

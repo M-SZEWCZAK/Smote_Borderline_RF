@@ -139,23 +139,33 @@ class OSDecisionTreeClassifier(DecisionTreeClassifier):
         check_input=True,
         missing_values_in_feature_mask=None,
     ):
+
+        X_drawn, y_drawn = _unwrap_data(X, y, sample_weight)
+        unique, class_counts = np.unique(y_drawn, return_counts=True)
+        minority_class_count = min(class_counts)
+        if minority_class_count <= 5:
+            print(f"\nMinority class count: {minority_class_count}")
+        safe_kneighbors = min(5, minority_class_count - 1)
+        # safe_kneighbors = 2
+        # if minority_class_size < 6:
+            # sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
+
+
         if self.oversampling_strategy == "random":
-            sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
+            sampler = RandomOverSampler(sampling_strategy=self.sampling_rate, k_neighbors=safe_kneighbors)
         elif self.oversampling_strategy == "SMOTE":
-            sampler = SMOTE(sampling_strategy=self.sampling_rate)
+            sampler = SMOTE(sampling_strategy=self.sampling_rate, k_neighbors=safe_kneighbors)
         elif  self.oversampling_strategy == "BorderlineSMOTE":
-            sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate)
+            sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate, k_neighbors=safe_kneighbors)
         elif self.oversampling_strategy == "ADASYN":
-            sampler = ADASYN(sampling_strategy=self.sampling_rate)
+            sampler = ADASYN(sampling_strategy=self.sampling_rate, k_neighbors=safe_kneighbors)
         else:
             raise ValueError(
                 f"Oversampling strategy {self.oversampling_strategy} is not supported."
             )
 
-        X_drawn, y_drawn = _unwrap_data(X, y, sample_weight)
         X_resampled, y_resampled = sampler.fit_resample(X_drawn, y_drawn)
-
-        sample_weight = [1] * len(X_drawn) + [0.5] * (len(X_resampled) - len(X_drawn))
+        sample_weight = [1] * len(X_drawn) + [1] * (len(X_resampled) - len(X_drawn))
 
         self.visualization_pack = [np.array(X_drawn), np.array(X_resampled), np.array(y_resampled), self.oversampling_strategy]
 
