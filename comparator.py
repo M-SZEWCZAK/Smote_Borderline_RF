@@ -26,14 +26,16 @@ class SRComparator():
             n_trees=100,
             iterations=100,
             n_rates=10,
+            min=0.15,
+            max=1.0
             ):
         self.dataset_name=dataset_name
         self.oversampling_strategy=oversampling_strategy
         self.n_trees=n_trees
         self.iterations=iterations
         self.metrics=['precision', 'recall']
-        self.MIN_RATE=0.5
-        self.MAX_RATE=0.7
+        self.MIN_RATE=min
+        self.MAX_RATE=max
         self.n_rates=n_rates
         self.generate_comparators()
 
@@ -273,13 +275,22 @@ class Comparator:
             dataset_name = self.dataset_names[i]
             labels = self.labels[i]
             data = self.datasets[i]
-            print(f'\n \n + DATASET: {dataset_name}')
+            if print_var:
+                print(f'\n \n + DATASET: {dataset_name}')
             if self.mode == 'both':
+                if print_var:
+                    print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
                 self.compute_bagging(data, dataset_name, labels)
+                if print_var:
+                    print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
                 self.compute_augmentation(data, dataset_name, labels)
             elif self.mode == 'bagging':
+                if print_var:
+                    print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
                 self.compute_bagging(data, dataset_name, labels)
             elif self.mode == 'augmentation':
+                if print_var:
+                    print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
                 self.compute_augmentation(data, dataset_name, labels)
             else:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
@@ -358,8 +369,6 @@ class Comparator:
 
     def compute_bagging(self, data, dataset_name, labels):
 
-        print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
-
         for strategy in self.oversampling_strategies:
             for j in range(self.iterations):
 
@@ -421,8 +430,6 @@ class Comparator:
                     
 
     def compute_augmentation(self, data, dataset_name, labels):
-
-        print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
         
         for strategy in self.oversampling_strategies:
             for j in range(self.iterations):
