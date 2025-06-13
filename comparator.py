@@ -9,6 +9,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
+from collections import Counter
 from umap import UMAP
 import warnings
 import os
@@ -25,14 +26,16 @@ class SRComparator():
             n_trees=100,
             iterations=100,
             n_rates=10,
+            min=0.15,
+            max=1.0
             ):
         self.dataset_name=dataset_name
         self.oversampling_strategy=oversampling_strategy
         self.n_trees=n_trees
         self.iterations=iterations
         self.metrics=['precision', 'recall']
-        self.MIN_RATE=0.3
-        self.MAX_RATE=1
+        self.MIN_RATE=min
+        self.MAX_RATE=max
         self.n_rates=n_rates
         self.generate_comparators()
 
@@ -55,16 +58,8 @@ class SRComparator():
             self.comparators.append(comparator)
 
     def compute(self):
-        print('=========================================================================')
-        print('=========================     START COMPUTING     =======================')
-        print('=========================================================================\n')
-        print(f'Dataset: {self.dataset_name}')
-        print(f"Computing {len(self.comparators)} comparators with sampling rates from {self.MIN_RATE} to {self.MAX_RATE}.")
-        print('=========================================================================\n')
         for comparator in self.comparators:
             comparator.compute(print_var=False, baseline=False)
-        print('\n=========================================================================')
-        print('==================     COMPUTING ENDED SUCCESSFULLY      ================')
 
     def plot_rates(self):
         
@@ -283,17 +278,25 @@ class Comparator:
             if print_var:
                 print(f'\n \n + DATASET: {dataset_name}')
             if self.mode == 'both':
-                self.compute_bagging(data, dataset_name, labels, print_var=print_var)
-                self.compute_augmentation(data, dataset_name, labels, print_var=print_var)
+                if print_var:
+                    print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
+                self.compute_bagging(data, dataset_name, labels)
+                if print_var:
+                    print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
+                self.compute_augmentation(data, dataset_name, labels)
             elif self.mode == 'bagging':
-                self.compute_bagging(data, dataset_name, labels, print_var=print_var)
+                if print_var:
+                    print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
+                self.compute_bagging(data, dataset_name, labels)
             elif self.mode == 'augmentation':
-                self.compute_augmentation(data, dataset_name, labels, print_var=print_var)
+                if print_var:
+                    print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
+                self.compute_augmentation(data, dataset_name, labels)
             else:
                 raise ValueError(f"Mode {self.mode} is not supported. Choose from 'both', 'bagging', or 'augmentation'.")
 
             if baseline:
-                self.compute_baseline(data, dataset_name, labels, print_var=print_var)
+                self.compute_baseline(data, dataset_name, labels)
             
         self.save_results()
         if print_var:
@@ -364,10 +367,7 @@ class Comparator:
         ]).to_csv(self.results_path, index=False)
 
 
-    def compute_bagging(self, data, dataset_name, labels, print_var=True):
-
-        if print_var:
-            print('\n-=-=-=-=-=-=   BAGGING   =-=-=-=-=-')
+    def compute_bagging(self, data, dataset_name, labels):
 
         for strategy in self.oversampling_strategies:
             for j in range(self.iterations):
@@ -377,10 +377,22 @@ class Comparator:
                 X_train, X_test, y_train, y_test = train_test_split(
                     data[0], data[1], stratify=data[1], test_size=self.test_size)
 
+                counter = Counter(y_train)
+                minority_class = min(counter, key=counter.get)
+                minority_count = counter[minority_class]
+                skip_oversampling = False
+                
+                if minority_count == 1 and strategy != 'random':
+                    print(f"WARNING: Oversampling is skipped for forest no.{j} due to a few minority samples.")
+                    skip_oversampling = True
+                if minority_count == 0 or len(counter) == 1:
+                    skip_oversampling = True
+
                 forest = OSRandomForestClassifier(
                     oversampling_strategy=strategy,
                     sampling_rate=self.sampling_rate,
-                    n_estimators=self.n_trees)
+                    n_estimators=self.n_trees,
+                    skip_oversampling=skip_oversampling)
                 
                 forest.fit(X_train, y_train)
 
@@ -417,10 +429,7 @@ class Comparator:
                 self.forest_counter += 1
                     
 
-    def compute_augmentation(self, data, dataset_name, labels, print_var=True):
-
-        if print_var:
-            print('\n-=-=-=-=-=-=   AUGMENTATION   =-=-=-=-=-')
+    def compute_augmentation(self, data, dataset_name, labels):
         
         for strategy in self.oversampling_strategies:
             for j in range(self.iterations):
@@ -429,23 +438,37 @@ class Comparator:
 
                 X_train, X_test, y_train, y_test = train_test_split(
                     data[0], data[1], stratify=data[1], test_size=self.test_size)
+                
+                counter = Counter(y_train)
+                minority_class = min(counter, key=counter.get)
+                minority_count = counter[minority_class]
+                k_neighbors = min(5, minority_count - 1) if minority_count > 1 else 1
+                skip_oversampling = minority_count <= 1 or len(counter) == 1
 
-                if strategy == "random":
-                    sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
-                elif strategy == "SMOTE":
-                    sampler = SMOTE(sampling_strategy=self.sampling_rate)
-                elif strategy == "BorderlineSMOTE":
-                    sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate)
-                elif strategy == "ADASYN":
-                    sampler = ADASYN(sampling_strategy=self.sampling_rate)
+                if not skip_oversampling:
+                    if strategy == "random":
+                        sampler = RandomOverSampler(sampling_strategy=self.sampling_rate)
+                    elif strategy == "SMOTE":
+                        sampler = SMOTE(sampling_strategy=self.sampling_rate, k_neighbors=k_neighbors)
+                    elif strategy == "BorderlineSMOTE":
+                        sampler = BorderlineSMOTE(sampling_strategy=self.sampling_rate, k_neighbors=k_neighbors)
+                    elif strategy == "ADASYN":
+                        sampler = ADASYN(sampling_strategy=self.sampling_rate, n_neighbors = k_neighbors)
+                    else:
+                        raise ValueError(f"Oversampling strategy {strategy} is not supported.")
                 else:
-                    raise ValueError(f"Oversampling strategy {strategy} is not supported.")
+                    print(f"WARNING: Oversampling is skipped for forest {j} due to a few minority samples.")
+                    sampler = None
                 
                 forest = RandomForestClassifier(
                     n_estimators=self.n_trees
                 )
+                
+                if sampler is None:
+                    X_resampled, y_resampled = X_train, y_train
+                else:
+                    X_resampled, y_resampled = sampler.fit_resample(X_train, y_train)
 
-                X_resampled, y_resampled = sampler.fit_resample(X_train, y_train)
                 forest.fit(X_resampled, y_resampled)
 
                 y_pred = forest.predict(X_test)
@@ -462,10 +485,9 @@ class Comparator:
                 self.forest_counter += 1
     
 
-    def compute_baseline(self, data, dataset_name, labels, print_var=True):
+    def compute_baseline(self, data, dataset_name, labels):
 
-        if print_var:
-            print('\n-=-=-=-=-=-=   BASELINE   =-=-=-=-=-')
+        print('\n-=-=-=-=-=-=   BASELINE   =-=-=-=-=-')
 
         for j in range(self.iterations):
 
